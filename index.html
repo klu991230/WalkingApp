@@ -293,6 +293,17 @@
 <section class="screen" id="archive">
   <span class="label">存档</span>
   <div id="archiveBody"></div>
+  <details id="backup">
+    <summary>备份 / 恢复</summary>
+    <div class="stack" style="margin-top:12px">
+      <button class="ghost" id="btnExport">导出备份</button>
+      <button class="ghost" id="btnImport">从备份恢复</button>
+    </div>
+    <p>照片只存在这台手机上。换手机、清了浏览器数据、或者 iOS 隔一阵子自己
+       回收掉，就都没了。导出一个文件存到「文件」App 或者发给自己，是唯一的保险。<br><br>
+       恢复是合并，不会覆盖掉现在已有的。</p>
+    <input type="file" accept="application/json,.json" id="importFile">
+  </details>
 </section>
 
 <!-- 7 这阵子 -->
@@ -1050,6 +1061,44 @@ async function deleteWalk(id){
   }catch(err){ console.warn("没删掉：",err); }
 }
 
+/* =========================================================
+   10. 备份 / 恢复
+
+   照片只在这台设备上。Safari 对一阵子没访问的站点会回收本地数据，
+   换手机、清缓存也一样。导出一个文件是唯一的保险。
+   （把网页「添加到主屏幕」能大幅降低被回收的概率，但不是保证。）
+   ========================================================= */
+async function exportAll(){
+  const [walks,photos,meta] = await Promise.all([
+    idbAll("walks"), idbAll("photos"), idbAll("meta").catch(()=>[])
+  ]);
+  if(!walks.length) throw new Error("还没有东西可以备份");
+  const blob = new Blob(
+    [JSON.stringify({app:"walkapp", v:1, at:new Date().toISOString(), walks, photos, meta})],
+    {type:"application/json"});
+  const d = new Date();
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `散步备份-${d.getFullYear()}${p2(d.getMonth()+1)}${p2(d.getDate())}.json`;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 8000);
+  return blob.size;
+}
+
+async function importAll(file){
+  const d = JSON.parse(await file.text());
+  if(!d || d.app!=="walkapp" || !Array.isArray(d.walks))
+    throw new Error("这不像是散步的备份文件");
+  /* 用 put 而不是清空重写：恢复是合并，不会把现在已有的趟数弄丢 */
+  for(const w of d.walks)          await idbPut("walks", w);
+  for(const x of (d.photos||[]))   await idbPut("photos", x);
+  for(const m of (d.meta||[]))     await idbPut("meta", m);
+  return d.walks.length;
+}
+
+const mb = n => (n/1048576).toFixed(1) + " MB";
+
 /* ---------- 按钮 ---------- */
 S("tabWalk").onclick=()=>showTab("walk");
 S("tabArchive").onclick=()=>showTab("archive");
@@ -1086,6 +1135,27 @@ S("btnAgain").onclick=()=>{ reset(); goIntro(); };
 
 S("btnBackArch").onclick=()=>showTab("archive");
 S("btnBackArch2").onclick=()=>showTab("archive");
+
+S("btnExport").onclick=async()=>{
+  const b=S("btnExport"); b.disabled=true; b.textContent="正在打包……";
+  try{ b.textContent="导出完成 · "+mb(await exportAll()); }
+  catch(err){ b.textContent="导不出来："+err.message; }
+  finally{ b.disabled=false; setTimeout(()=>b.textContent="导出备份", 6000); }
+};
+
+S("btnImport").onclick=()=>S("importFile").click();
+
+S("importFile").onchange=async e=>{
+  const f=e.target.files[0]; e.target.value="";
+  if(!f) return;
+  const b=S("btnImport"); b.disabled=true; b.textContent="正在读……";
+  try{
+    const n=await importAll(f);
+    b.textContent=`恢复了 ${n} 趟`;
+    renderArchive();
+  }catch(err){ b.textContent="恢复失败："+err.message; }
+  finally{ b.disabled=false; setTimeout(()=>b.textContent="从备份恢复", 6000); }
+};
 
 S("btnDelWalk").onclick=async()=>{
   if(!openId) return;
