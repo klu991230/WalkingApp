@@ -12,3 +12,6 @@ secrets.*
 # 编辑器
 .vscode/
 .idea/
+
+# Claude Code 的本地配置，不用进仓库
+.claude/

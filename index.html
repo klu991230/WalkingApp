@@ -213,30 +213,41 @@
 
 <script>
 /* =========================================================
-   1. 任务池 —— 顺序就是难度：看（易）→ 动（中）→ 想（难）
+   1. 任务池 —— 顺序就是难度：找茬（易）→ 出洋相（中）→ 发呆（难）
+
+   题目本身不在这里，在同目录的 tasks.json 里。
+   想改题、加题、改措辞，编辑那个文件就行，不用动代码。
    ========================================================= */
-const POOL = {
-  看:[
-    "拍一处有人手写的字",
-    "拍一样被修补过的东西：胶带、补丁、水泥补痕都算",
-    "拍一样正在掉漆或者生锈的东西",
-    "拍一样被太阳晒褪色了的东西"
-  ],
-  动:[
-    "蹲下来，拍一样离地面不到 20 厘米的东西",
-    "抬头，拍一样在你头顶正上方的东西",
-    "走过去之后回头，拍一眼你刚经过的地方",
-    "把手机贴到快挨着地面，拍一张虫子视角的照片"
-  ],
-  想:[
-    "拍一样看起来比你老的东西",
-    "拍一样有人在精心照料、但大概没人会注意的东西",
-    "拍一样看起来被忘掉了的东西",
-    "拍一道你觉得好看的影子"
-  ]
-};
-const ROUNDS=["看","动","想"];
-const ORDINAL=["第一个","第二个","第三个"];
+
+/* 读不到 tasks.json 时的兜底：断网，或者直接双击打开 html
+   （file:// 协议下浏览器不允许 fetch）。每组留一条，保证 App
+   永远走得完，不会白屏。跟下面摄像头那个兜底一个道理，别删。 */
+const FALLBACK = { groups:[
+  { name:"找茬",   tasks:["拍一处有人手写的字"] },
+  { name:"出洋相", tasks:["蹲下来，拍一样离地面不到 20 厘米的东西"] },
+  { name:"发呆",   tasks:["拍一样看起来比你老的东西"] }
+]};
+
+let POOL={}, ROUNDS=[];
+const ORDINAL=["第一个","第二个","第三个","第四个","第五个"];
+
+async function loadTasks(){
+  let data=FALLBACK;
+  try{
+    /* 加时间戳绕开手机缓存 —— 改完题目要立刻生效，不能拿到旧的 */
+    const r=await fetch("tasks.json?v="+Date.now());
+    if(!r.ok) throw new Error("HTTP "+r.status);
+    const j=await r.json();
+    const ok = Array.isArray(j.groups) && j.groups.length
+      && j.groups.every(g=>g.name && Array.isArray(g.tasks) && g.tasks.length);
+    if(!ok) throw new Error("tasks.json 格式不对");
+    data=j;
+  }catch(err){
+    console.warn("题库没读到，用兜底的：",err.message);
+  }
+  ROUNDS = data.groups.map(g=>g.name);
+  POOL   = Object.fromEntries(data.groups.map(g=>[g.name,g.tasks]));
+}
 
 /* =========================================================
    2. 状态
@@ -398,10 +409,10 @@ const askSummary=()=>callAI({
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
 function goIntro(){
-  S("introLabel").textContent=`${idx+1} / 3`;
+  S("introLabel").textContent=`${idx+1} / ${tasks.length}`;
   S("introText").textContent=idx===0
     ? "准备好第一个任务了吗"
-    : `${ORDINAL[idx]}任务`;
+    : `${ORDINAL[idx]||"下一个"}任务`;
   show("intro");
 }
 
@@ -420,7 +431,7 @@ async function goReview(dataUrl){
   t.photo=dataUrl; t.reply=null;
   S("revRound").textContent=t.round+" — "+t.text;
   S("revImg").src=dataUrl;
-  S("btnNext").textContent = idx===2 ? "看看这趟走了什么" : "下一个任务";
+  S("btnNext").textContent = idx===tasks.length-1 ? "看看这趟走了什么" : "下一个任务";
   const rep=S("revReply");
   if(apiKey){
     rep.className="reply pending"; rep.textContent="正在看……";
@@ -454,7 +465,7 @@ async function goCard(){
 }
 
 /* ---------- 按钮 ---------- */
-S("btnStart").onclick=()=>{ reset(); goIntro(); };
+S("btnStart").onclick=async()=>{ await ready; reset(); goIntro(); };
 S("btnGo").onclick=goCam;
 
 S("btnSwap").onclick=()=>{
@@ -479,10 +490,12 @@ S("picker").onchange=async e=>{
 };
 
 S("btnRetake").onclick=goCam;
-S("btnNext").onclick=()=>{ idx++; idx<3 ? goIntro() : goCard(); };
+S("btnNext").onclick=()=>{ idx++; idx<tasks.length ? goIntro() : goCard(); };
 S("btnAgain").onclick=()=>{ reset(); goIntro(); };
 
-reset();
+/* 启动：先把题库读进来。用户点「开始」时会等它读完 ——
+   本地小文件，正常情况下点之前就已经读好了。 */
+const ready = loadTasks();
 </script>
 </body>
 </html>
