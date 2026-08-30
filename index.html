@@ -137,6 +137,35 @@
   }
   details p{font-size:12px;color:var(--ink-dim);margin-top:8px;line-height:1.5}
 
+  /* ---------- 存档屏 ---------- */
+  #archive{overflow-y:auto}
+  .empty{text-align:center}
+  .empty p{font-size:17px}
+  .empty .hint{font-size:13px;color:var(--ink-dim);margin-top:12px;line-height:1.8}
+
+  /* ---------- 底栏 ----------
+     只在「欢迎 / 存档 / 结束卡片」三屏出现。
+     走路途中收起来 —— 那时候不该有别的地方可去。 */
+  .tabbar{
+    position:fixed;left:0;right:0;bottom:0;z-index:10;
+    display:none;background:var(--paper);border-top:1px solid var(--line);
+    padding-bottom:env(safe-area-inset-bottom);
+  }
+  .tabbar.on{display:flex}
+  .tabbar button{
+    flex:1;position:relative;border:0;background:none;
+    padding:15px 0 16px;font-size:14px;letter-spacing:.28em;
+    color:var(--ink-dim);transition:color .15s;
+  }
+  .tabbar button:active{background:none;color:var(--ink)}
+  .tabbar button.sel{color:var(--ink)}
+  .tabbar button.sel::before{
+    content:"";position:absolute;top:-1px;left:0;right:0;height:2px;background:var(--moss);
+  }
+  /* 有底栏的屏，底部留出空间，内容别被压住 */
+  #welcome,#archive{padding-bottom:calc(env(safe-area-inset-bottom) + 80px)}
+  .card-inner{padding:calc(env(safe-area-inset-top) + 24px) 22px calc(env(safe-area-inset-bottom) + 92px)}
+
   input[type=file]{display:none}
   @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
@@ -202,7 +231,7 @@
 
 <!-- 5 卡片 -->
 <section class="screen" id="cardScreen">
-  <div style="padding:calc(env(safe-area-inset-top) + 24px) 22px calc(env(safe-area-inset-bottom) + 28px)">
+  <div class="card-inner">
     <span class="card-date" id="cardDate"></span>
     <h2 style="margin-top:8px">这趟散步</h2>
     <div id="cardRows"></div>
@@ -210,6 +239,23 @@
     <button class="ghost" id="btnAgain" style="margin-top:28px">再走一趟</button>
   </div>
 </section>
+
+<!-- 6 存档（第四节接 IndexedDB，现在是空壳） -->
+<section class="screen" id="archive">
+  <span class="label">存档</span>
+  <div class="spacer"></div>
+  <div class="empty" id="archiveEmpty">
+    <p>还没有存档</p>
+    <p class="hint">走完一趟，这里会留下记录。<br>照片只存在这台手机上，不上传。</p>
+  </div>
+  <div class="spacer"></div>
+</section>
+
+<!-- 底栏 -->
+<nav class="tabbar" id="tabbar">
+  <button data-tab="walk"    id="tabWalk"    class="sel">走</button>
+  <button data-tab="archive" id="tabArchive">存档</button>
+</nav>
 
 <script>
 /* =========================================================
@@ -283,10 +329,23 @@ refreshKey();
    4. 屏幕切换
    ========================================================= */
 const S=id=>document.getElementById(id);
+
+/* 哪几屏显示底栏。走路途中（过场/取景/回看）不显示。
+   结束卡片显示——那趟已经走完了，得留条路去存档。 */
+const WITH_TABBAR = ["welcome","archive","cardScreen"];
+
 function show(id){
   document.querySelectorAll(".screen").forEach(s=>s.classList.remove("on"));
   S(id).classList.add("on");
+  S("tabbar").classList.toggle("on", WITH_TABBAR.includes(id));
   if(id!=="camScreen") stopCam();      // 离开取景就关摄像头，省电
+}
+
+/* 切 tab。「走」永远回到欢迎屏，不接着上一趟。 */
+function showTab(which){
+  show(which==="archive" ? "archive" : "welcome");
+  S("tabWalk").classList.toggle("sel", which!=="archive");
+  S("tabArchive").classList.toggle("sel", which==="archive");
 }
 
 /* =========================================================
@@ -465,6 +524,9 @@ async function goCard(){
 }
 
 /* ---------- 按钮 ---------- */
+S("tabWalk").onclick=()=>showTab("walk");
+S("tabArchive").onclick=()=>showTab("archive");
+
 S("btnStart").onclick=async()=>{ await ready; reset(); goIntro(); };
 S("btnGo").onclick=goCam;
 
@@ -496,6 +558,10 @@ S("btnAgain").onclick=()=>{ reset(); goIntro(); };
 /* 启动：先把题库读进来。用户点「开始」时会等它读完 ——
    本地小文件，正常情况下点之前就已经读好了。 */
 const ready = loadTasks();
+
+/* 开屏就在「走」这一屏。走一次 showTab 把底栏点亮 ——
+   欢迎屏的 on 是写死在 HTML 里的，不走一遍底栏不会出现。 */
+showTab("walk");
 </script>
 </body>
 </html>
