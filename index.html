@@ -148,10 +148,32 @@
   @keyframes walkline{to{stroke-dashoffset:-14}}
 
   /* ---------- 存档屏 ---------- */
-  #archive{overflow-y:auto}
-  .empty{text-align:center}
+  #archive,#walkDetail{overflow-y:auto}
+  #archiveBody{flex:1;display:flex;flex-direction:column}
+  .empty{margin:auto 0;text-align:center}
   .empty p{font-size:17px}
   .empty .hint{font-size:13px;color:var(--ink-dim);margin-top:12px;line-height:1.8}
+
+  .arch-stat{font-family:var(--mono);font-size:11px;letter-spacing:.14em;
+    color:var(--ink-dim);margin:18px 0 2px}
+  .arch-row{
+    display:block;width:100%;text-align:left;background:none;
+    border:0;border-top:1px solid var(--line);padding:18px 0;
+  }
+  .arch-row:active{background:none;color:var(--ink);opacity:.55}
+  .arch-thumbs{display:flex;gap:8px;margin-top:10px}
+  .arch-thumbs img,.arch-thumbs .ph{
+    flex:0 0 auto;width:78px;height:78px;object-fit:cover;display:block;
+    border:1px solid var(--line);background:var(--paper-2);
+  }
+  .arch-sum{display:block;margin-top:12px;font-size:14px;line-height:1.55;color:var(--ink)}
+
+  /* ---------- 某一趟的详情 ---------- */
+  .det-back{width:auto;align-self:flex-start;padding:9px 15px;margin-bottom:20px}
+  .det-shot{margin-top:28px}
+  .det-shot .t{font-family:var(--mono);font-size:10px;letter-spacing:.08em;
+    color:var(--ink-dim);display:block;margin-top:13px}
+  .det-shot .reply{margin-top:10px;font-size:16px}
 
   /* ---------- 底栏 ----------
      只在「欢迎 / 存档 / 结束卡片」三屏出现。
@@ -254,12 +276,16 @@
 <!-- 6 存档（第四节接 IndexedDB，现在是空壳） -->
 <section class="screen" id="archive">
   <span class="label">存档</span>
-  <div class="spacer"></div>
-  <div class="empty" id="archiveEmpty">
-    <p>还没有存档</p>
-    <p class="hint">走完一趟，这里会留下记录。<br>照片只存在这台手机上，不上传。</p>
-  </div>
-  <div class="spacer"></div>
+  <div id="archiveBody"></div>
+</section>
+
+<!-- 7 某一趟的详情 -->
+<section class="screen" id="walkDetail">
+  <button class="ghost det-back" id="btnBackArch">← 存档</button>
+  <span class="card-date" id="detDate"></span>
+  <div id="detRows"></div>
+  <div class="summary" id="detSum"></div>
+  <button class="ghost" id="btnDelWalk" style="margin-top:34px">删掉这趟</button>
 </section>
 
 <!-- 底栏 -->
@@ -417,7 +443,7 @@ const S=id=>document.getElementById(id);
 
 /* 哪几屏显示底栏。走路途中（过场/取景/回看）不显示。
    结束卡片显示——那趟已经走完了，得留条路去存档。 */
-const WITH_TABBAR = ["welcome","archive","cardScreen"];
+const WITH_TABBAR = ["welcome","archive","cardScreen","walkDetail"];
 
 function show(id){
   document.querySelectorAll(".screen").forEach(s=>s.classList.remove("on"));
@@ -431,6 +457,7 @@ function showTab(which){
   show(which==="archive" ? "archive" : "welcome");
   S("tabWalk").classList.toggle("sel", which!=="archive");
   S("tabArchive").classList.toggle("sel", which==="archive");
+  if(which==="archive") renderArchive();     // 每次进来重读，刚走完的那趟才会出现
 }
 
 /* =========================================================
@@ -661,9 +688,189 @@ async function goCard(){
   sum.style.display = apiKey ? "" : "none";
   sum.textContent = apiKey ? "正在收尾……" : "";
   show("cardScreen");
+
+  /* 先把照片落盘。AI 那句收尾话要等几秒，不能拿照片去赌它 */
+  const walkId = await saveWalk();
+
   if(!apiKey) return;
-  try{ sum.textContent=await askSummary(); }
+  try{
+    const text = await askSummary();
+    sum.textContent = text;
+    saveSummary(walkId, text);        // 回来了再补进存档
+  }
   catch{ sum.style.display="none"; }
+}
+
+/* =========================================================
+   8. 存档（IndexedDB）
+
+   为什么不用 localStorage：它上限 5MB，只能存文字。一张照片转成
+   文字大约 250KB，存 6 趟就满了。IndexedDB 没这个限制。
+
+   分两个仓库，是为了让时间线能秒开：
+     walks  —— 一趟一条，含 240px 缩略图，约 37KB。打开存档只读这个。
+     photos —— 一张大图一条，约 250KB。点进某一趟才去读。
+   不拆的话，打开存档就要把几十兆全捞出来，手机会卡死。
+
+   全程只写这台设备，不上传任何东西。
+   ========================================================= */
+const DB_NAME="walkapp", DB_VER=1;
+let dbPromise=null;
+
+function db(){
+  if(dbPromise) return dbPromise;
+  dbPromise = new Promise((res,rej)=>{
+    if(!self.indexedDB) return rej(new Error("这台设备不支持 IndexedDB"));
+    const q=indexedDB.open(DB_NAME,DB_VER);
+    q.onupgradeneeded=()=>{
+      const d=q.result;
+      if(!d.objectStoreNames.contains("walks"))  d.createObjectStore("walks", {keyPath:"id"});
+      if(!d.objectStoreNames.contains("photos")) d.createObjectStore("photos",{keyPath:"id"});
+    };
+    q.onsuccess=()=>res(q.result);
+    q.onerror  =()=>rej(q.error||new Error("打不开本地存储"));
+  });
+  return dbPromise;
+}
+
+/* 一次事务一个请求，够用，也不容易写错 */
+function idb(store,mode,fn){
+  return db().then(d=>new Promise((res,rej)=>{
+    const t=d.transaction(store,mode);
+    const r=fn(t.objectStore(store));
+    t.oncomplete=()=>res(r?r.result:undefined);
+    t.onerror   =()=>rej(t.error);
+    t.onabort   =()=>rej(t.error||new Error("写入被中断，可能是空间满了"));
+  }));
+}
+const idbPut = (st,v)=>idb(st,"readwrite",s=>s.put(v));
+const idbGet = (st,k)=>idb(st,"readonly", s=>s.get(k));
+const idbAll = st    =>idb(st,"readonly", s=>s.getAll());
+const idbDel = (st,k)=>idb(st,"readwrite",s=>s.delete(k));
+
+/* 大图压成 240px 缩略图。时间线只用它，所以要小。 */
+function makeThumb(dataUrl,size=240){
+  return new Promise(res=>{
+    const im=new Image();
+    im.onload =()=>{
+      const c=document.createElement("canvas");
+      c.width=c.height=size;
+      c.getContext("2d").drawImage(im,0,0,size,size);
+      res(c.toDataURL("image/jpeg",0.7));
+    };
+    im.onerror=()=>res("");          // 缩略图失败不该连累整趟存不下
+    im.src=dataUrl;
+  });
+}
+
+const p2=n=>String(n).padStart(2,"0");
+
+/* 走完一趟就落盘。先存照片，别等 AI 收尾那句话。 */
+async function saveWalk(){
+  const shot=tasks.filter(t=>t.photo);
+  if(!shot.length) return null;
+  const now=new Date(), id=now.toISOString();
+  const walk={
+    id, ts:now.getTime(),
+    date:`${now.getFullYear()}.${p2(now.getMonth()+1)}.${p2(now.getDate())}`,
+    summary:"", shots:[]
+  };
+  try{
+    for(let i=0;i<shot.length;i++){
+      const t=shot[i], photoId=id+"#"+i;
+      await idbPut("photos",{id:photoId,data:t.photo});
+      walk.shots.push({
+        round:t.round, task:t.text, reply:t.reply||"",
+        thumb:await makeThumb(t.photo), photoId
+      });
+    }
+    await idbPut("walks",walk);
+    return id;
+  }catch(err){
+    console.warn("这趟没存下来：",err);
+    return null;
+  }
+}
+
+/* AI 那句收尾话晚一步才回来，回来了再补进去 */
+async function saveSummary(id,text){
+  if(!id||!text) return;
+  try{
+    const w=await idbGet("walks",id);
+    if(w){ w.summary=text; await idbPut("walks",w); }
+  }catch(err){ console.warn("收尾语没存上：",err); }
+}
+
+/* ---------- 时间线 ---------- */
+const EMPTY_ARCH=`<div class="empty">
+    <p>还没有存档</p>
+    <p class="hint">走完一趟，这里会留下记录。<br>照片只存在这台手机上，不上传。</p>
+  </div>`;
+
+async function renderArchive(){
+  const box=S("archiveBody");
+  let walks;
+  try{ walks=await idbAll("walks"); }
+  catch(err){
+    box.innerHTML=`<div class="empty">
+      <p>存档打不开</p>
+      <p class="hint">这台设备不让网页在本地存东西，<br>无痕模式下常见。<br><br>散步照常能走，只是留不下记录。</p>
+    </div>`;
+    return;
+  }
+  if(!walks.length){ box.innerHTML=EMPTY_ARCH; return; }
+
+  walks.sort((a,b)=>b.ts-a.ts);                     // 新的在上面
+  const n=walks.reduce((k,w)=>k+w.shots.length,0);
+  box.innerHTML =
+    `<p class="arch-stat">走过 ${walks.length} 趟 · ${n} 张</p>` +
+    walks.map(w=>`<button class="arch-row" data-id="${esc(w.id)}">
+        <span class="card-date">${esc(w.date)}</span>
+        <span class="arch-thumbs">${
+          w.shots.map(x=>x.thumb?`<img src="${x.thumb}" alt="">`:`<span class="ph"></span>`).join("")
+        }</span>
+        ${w.summary?`<span class="arch-sum">${esc(w.summary)}</span>`:""}
+      </button>`).join("");
+  box.querySelectorAll(".arch-row").forEach(b=>b.onclick=()=>openWalk(b.dataset.id));
+}
+
+/* ---------- 某一趟 ---------- */
+let openId=null;
+
+async function openWalk(id){
+  let w;
+  try{ w=await idbGet("walks",id); }catch{ return; }
+  if(!w) return;
+  openId=id;
+  S("detDate").textContent=w.date;
+  S("detRows").innerHTML=w.shots.map((x,i)=>`
+    <div class="det-shot">
+      <div class="shot-wrap"><img id="det${i}" src="${x.thumb||""}" alt=""></div>
+      <span class="t">${esc(x.round)} — ${esc(x.task)}</span>
+      ${x.reply?`<p class="reply">${esc(x.reply)}</p>`:""}
+    </div>`).join("");
+  const sum=S("detSum");
+  sum.textContent=w.summary||"";
+  sum.style.display=w.summary?"":"none";
+  show("walkDetail");
+  S("walkDetail").scrollTop=0;
+
+  /* 先用缩略图把版式撑起来，大图后到 —— 不卡住这一屏 */
+  w.shots.forEach(async (x,i)=>{
+    try{
+      const ph=await idbGet("photos",x.photoId);
+      const el=S("det"+i);
+      if(el&&ph&&ph.data) el.src=ph.data;
+    }catch{}
+  });
+}
+
+async function deleteWalk(id){
+  try{
+    const w=await idbGet("walks",id);
+    if(w) for(const x of w.shots) await idbDel("photos",x.photoId);
+    await idbDel("walks",id);
+  }catch(err){ console.warn("没删掉：",err); }
 }
 
 /* ---------- 按钮 ---------- */
@@ -699,6 +906,16 @@ S("btnZoom").onclick=()=> setZoom(zoom >= MAX_ZOOM-0.05 ? 1 : Math.floor(zoom)+1
 S("btnRetake").onclick=goCam;
 S("btnNext").onclick=()=>{ idx++; idx<tasks.length ? goIntro() : goCard(); };
 S("btnAgain").onclick=()=>{ reset(); goIntro(); };
+
+S("btnBackArch").onclick=()=>showTab("archive");
+
+S("btnDelWalk").onclick=async()=>{
+  if(!openId) return;
+  if(!confirm("删掉这趟？照片一起删，删了找不回来。")) return;
+  await deleteWalk(openId);
+  openId=null;
+  showTab("archive");
+};
 
 /* 启动：先把题库读进来。用户点「开始」时会等它读完 ——
    本地小文件，正常情况下点之前就已经读好了。 */
