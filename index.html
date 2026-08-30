@@ -168,6 +168,22 @@
   }
   .arch-sum{display:block;margin-top:12px;font-size:14px;line-height:1.55;color:var(--ink)}
 
+  /* ---------- 这阵子（跨时间观察） ---------- */
+  #observe{overflow-y:auto}
+  .obs-btn{margin-top:20px;font-size:14px;padding:13px}
+  .obs-block{margin-top:30px;padding-top:20px;border-top:1px solid var(--line)}
+  .obs-h{font-family:var(--mono);font-size:11px;letter-spacing:.2em;
+    text-transform:uppercase;color:var(--ink-dim);margin-bottom:16px}
+  .obs-fact{display:flex;justify-content:space-between;gap:16px;
+    font-size:15px;line-height:1.7;padding:5px 0}
+  .obs-fact b{font-weight:600;font-variant-numeric:tabular-nums}
+  .obs-note{font-size:13px;color:var(--ink-dim);line-height:1.7;margin-top:14px}
+  .obs-ai .line{font-size:17px;line-height:1.65;border-left:2px solid var(--moss);
+    padding-left:15px;margin-bottom:18px}
+  .obs-lock{font-size:14px;color:var(--ink-dim);line-height:1.8}
+  .obs-when{font-family:var(--mono);font-size:10px;letter-spacing:.12em;
+    color:var(--ink-dim);margin-top:6px}
+
   /* ---------- 某一趟的详情 ---------- */
   .det-back{width:auto;align-self:flex-start;padding:9px 15px;margin-bottom:20px}
   .det-shot{margin-top:28px}
@@ -195,7 +211,7 @@
     content:"";position:absolute;top:-1px;left:0;right:0;height:2px;background:var(--moss);
   }
   /* 有底栏的屏，底部留出空间，内容别被压住 */
-  #welcome,#archive{padding-bottom:calc(env(safe-area-inset-bottom) + 80px)}
+  #welcome,#archive,#observe,#walkDetail{padding-bottom:calc(env(safe-area-inset-bottom) + 80px)}
   .card-inner{padding:calc(env(safe-area-inset-top) + 24px) 22px calc(env(safe-area-inset-bottom) + 92px)}
 
   input[type=file]{display:none}
@@ -279,7 +295,15 @@
   <div id="archiveBody"></div>
 </section>
 
-<!-- 7 某一趟的详情 -->
+<!-- 7 这阵子 -->
+<section class="screen" id="observe">
+  <button class="ghost det-back" id="btnBackArch2">← 存档</button>
+  <span class="label">这阵子</span>
+  <div id="obsNumbers"></div>
+  <div class="obs-block obs-ai" id="obsAI"></div>
+</section>
+
+<!-- 8 某一趟的详情 -->
 <section class="screen" id="walkDetail">
   <button class="ghost det-back" id="btnBackArch">← 存档</button>
   <span class="card-date" id="detDate"></span>
@@ -443,7 +467,7 @@ const S=id=>document.getElementById(id);
 
 /* 哪几屏显示底栏。走路途中（过场/取景/回看）不显示。
    结束卡片显示——那趟已经走完了，得留条路去存档。 */
-const WITH_TABBAR = ["welcome","archive","cardScreen","walkDetail"];
+const WITH_TABBAR = ["welcome","archive","cardScreen","walkDetail","observe"];
 
 function show(id){
   document.querySelectorAll(".screen").forEach(s=>s.classList.remove("on"));
@@ -584,6 +608,9 @@ function shrinkFile(file){
 /* =========================================================
    6. AI
    ========================================================= */
+/* 模型名单独拎出来。将来换 DeepSeek 只改这里和 callAI 里的地址 */
+const MODEL="claude-sonnet-4-6";
+
 const VOICE=`你是用户散步时的一个朋友，嘴有点损但心是好的。用户会发来他刚拍的照片和当时的任务。
 
 你要做的：
@@ -615,14 +642,14 @@ async function callAI(body){
   return d.content.filter(b=>b.type==="text").map(b=>b.text).join("").trim();
 }
 const askAI=(url,text)=>callAI({
-  model:"claude-sonnet-4-6",max_tokens:1000,system:VOICE,
+  model:MODEL,max_tokens:1000,system:VOICE,
   messages:[{role:"user",content:[
     {type:"image",source:{type:"base64",media_type:"image/jpeg",data:url.split(",")[1]}},
     {type:"text",text:"任务是："+text}
   ]}]
 });
 const askSummary=()=>callAI({
-  model:"claude-sonnet-4-6",max_tokens:1000,
+  model:MODEL,max_tokens:1000,
   system:VOICE+`
 
 这趟散步结束了。看这三条记录，找一个跨照片的规律——比如他老是往上拍、老是拍旧东西、三张都没有人。说一句收尾的话，一到两句，最多 45 个字，还是那个损朋友的语气。找不出规律就说点别的，别硬凑。`,
@@ -714,7 +741,7 @@ async function goCard(){
 
    全程只写这台设备，不上传任何东西。
    ========================================================= */
-const DB_NAME="walkapp", DB_VER=1;
+const DB_NAME="walkapp", DB_VER=2;      // 2：加了 meta 仓库，存跨时间观察
 let dbPromise=null;
 
 function db(){
@@ -726,6 +753,7 @@ function db(){
       const d=q.result;
       if(!d.objectStoreNames.contains("walks"))  d.createObjectStore("walks", {keyPath:"id"});
       if(!d.objectStoreNames.contains("photos")) d.createObjectStore("photos",{keyPath:"id"});
+      if(!d.objectStoreNames.contains("meta"))   d.createObjectStore("meta",  {keyPath:"id"});
     };
     q.onsuccess=()=>res(q.result);
     q.onerror  =()=>rej(q.error||new Error("打不开本地存储"));
@@ -823,7 +851,8 @@ async function renderArchive(){
   walks.sort((a,b)=>b.ts-a.ts);                     // 新的在上面
   const n=walks.reduce((k,w)=>k+w.shots.length,0);
   box.innerHTML =
-    `<p class="arch-stat">走过 ${walks.length} 趟 · ${n} 张</p>` +
+    `<p class="arch-stat">走过 ${walks.length} 趟 · ${n} 张</p>
+     <button class="ghost obs-btn" id="btnObserve" style="margin:0 0 4px">看看这阵子 →</button>` +
     walks.map(w=>`<button class="arch-row" data-id="${esc(w.id)}">
         <span class="card-date">${esc(w.date)}</span>
         <span class="arch-thumbs">${
@@ -832,6 +861,154 @@ async function renderArchive(){
         ${w.summary?`<span class="arch-sum">${esc(w.summary)}</span>`:""}
       </button>`).join("");
   box.querySelectorAll(".arch-row").forEach(b=>b.onclick=()=>openWalk(b.dataset.id));
+  S("btnObserve").onclick = openObserve;
+}
+
+/* =========================================================
+   9. 这阵子 —— 跨时间观察
+
+   两半，性质完全不同：
+
+   上半「数出来的」：纯本地计算，不联网、不要 key、永远准。
+     「你 40 张里有 12 张是往上拍的」这种，任务名里就写着，不用 AI。
+
+   下半「AI 看出来的」：把过去所有的任务名和 AI 当时说过的话，
+     当成纯文字发过去找规律。不发图片——
+     一百张图又慢又贵还超容量，而每张的点评本来就是那张照片的压缩描述。
+     单张照片能说的话很有限，一百张才有话说。
+   ========================================================= */
+const OBS_MIN = 10;                     // 少于这个趟数，AI 说不出有意义的话
+
+function localStats(walks){
+  const shots = walks.flatMap(w=>w.shots);
+  const sorted = walks.slice().sort((a,b)=>a.ts-b.ts);
+  const freq = {};
+  shots.forEach(x=>freq[x.task]=(freq[x.task]||0)+1);
+  const top = Object.entries(freq).sort((a,b)=>b[1]-a[1])[0];
+  const hits = re => shots.filter(x=>re.test(x.task)).length;
+  let poolSize = 0;
+  try{ poolSize = ROUNDS.reduce((n,r)=>n+(POOL[r]||[]).length, 0); }catch{}
+  return {
+    walks: walks.length,
+    shots: shots.length,
+    from: sorted[0].date, to: sorted[sorted.length-1].date,
+    kinds: Object.keys(freq).length, poolSize,
+    top,
+    up:   hits(/抬头|头顶|上方/),
+    down: hits(/蹲|地面|底下|虫子/),
+    back: hits(/回头|转一圈|后退/),
+    withReply: shots.filter(x=>x.reply).length
+  };
+}
+
+const row=(k,v)=>`<div class="obs-fact"><span>${k}</span><b>${v}</b></div>`;
+
+function renderNumbers(walks){
+  const t = localStats(walks);
+  let h = `<div class="obs-block"><p class="obs-h">数出来的</p>`
+    + row("走过", t.walks + " 趟")
+    + row("拍了", t.shots + " 张")
+    + row("从", t.from + " 到 " + t.to)
+    + row("做过不同的任务", t.kinds + (t.poolSize ? " / " + t.poolSize : "") + " 个");
+  if(t.top && t.top[1] > 1) h += row("最常撞上", t.top[1] + " 次");
+  if(t.up)   h += row("抬头往上拍", t.up + " 张");
+  if(t.down) h += row("蹲下来拍",   t.down + " 张");
+  if(t.back) h += row("回头 / 转身", t.back + " 张");
+
+  if(t.top && t.top[1] > 1)
+    h += `<p class="obs-note">最常撞上的那个任务是「${esc(t.top[0])}」。</p>`;
+  if(t.withReply < t.shots)
+    h += `<p class="obs-note">${t.shots - t.withReply} 张没有点评——那几趟没填 key。
+          下面那半要靠这些话才有东西可看。</p>`;
+  return h + `</div>`;
+}
+
+/* ---------- AI 那半 ---------- */
+const OBSERVE_VOICE = VOICE + `
+
+现在情况变了：这不是一张照片，是他这段时间所有的散步记录。
+每一行是一张照片：当时的任务，和你当时说过的话。
+
+横着看完，说三条他自己不会注意到的规律。可以是：
+- 他反复在拍的东西
+- 他明显躲开的东西
+- 前后期的变化
+- 他挑对象的口味
+
+每条一到两句，最多 40 字，每条单独一行，不要编号。
+还是那个损朋友的语气，但这次可以稍微认真一点——他攒了这么久，值得你说点真的。
+
+不许：三条说的其实是同一件事、硬凑规律、复述他拍过什么、感慨时间过得真快。
+实在只找得出两条，就说两条，别凑。`;
+
+function askObserve(walks){
+  const body = walks.slice().sort((a,b)=>a.ts-b.ts).map(w =>
+    w.date + "\n" + w.shots.map(x =>
+      `  [${x.round}] 任务「${x.task}」，你当时说：${x.reply || "（那天没点评）"}`
+    ).join("\n")
+  ).join("\n\n");
+  return callAI({
+    model:MODEL, max_tokens:1000, system:OBSERVE_VOICE,
+    messages:[{role:"user",content:body}]
+  });
+}
+
+async function runObserve(walks){
+  const box = S("obsAI");
+  box.innerHTML = `<p class="obs-h">正在横着看这 ${walks.length} 趟……</p>`;
+  try{
+    const text = await askObserve(walks);
+    await idbPut("meta",{id:"observe", text, ts:Date.now(), n:walks.length}).catch(()=>{});
+    renderObserveAI(walks, {text, ts:Date.now(), n:walks.length});
+  }catch(err){
+    box.innerHTML = `<p class="obs-h">AI 看出来的</p>
+      <p class="obs-lock">没看成（${esc(err.message)}）。</p>`
+      + `<button class="ghost obs-btn" id="btnObsGo">再试一次</button>`;
+    S("btnObsGo").onclick = ()=>runObserve(walks);
+  }
+}
+
+function renderObserveAI(walks, saved){
+  const box = S("obsAI");
+  const enough = walks.length >= OBS_MIN;
+  let h = `<p class="obs-h">AI 看出来的</p>`;
+
+  if(saved && saved.text){
+    h += saved.text.split(/\n+/).filter(x=>x.trim())
+           .map(x=>`<p class="line">${esc(x.trim())}</p>`).join("");
+    const d = new Date(saved.ts);
+    h += `<p class="obs-when">基于 ${saved.n} 趟 · ${d.getFullYear()}.${p2(d.getMonth()+1)}.${p2(d.getDate())} 生成</p>`;
+    if(walks.length > saved.n)
+      h += `<button class="ghost obs-btn" id="btnObsGo">这之后又走了 ${walks.length - saved.n} 趟，重新看一次</button>`;
+    else
+      h += `<button class="ghost obs-btn" id="btnObsGo">重新看一次</button>`;
+  }else if(!enough){
+    h += `<p class="obs-lock">再走 ${OBS_MIN - walks.length} 趟就能看。<br><br>
+      单张照片能说的话很有限，攒够了横着看才有东西。
+      现在就让它说，只会硬凑。</p>`;
+  }else if(!apiKey){
+    h += `<p class="obs-lock">这一半要联网问 AI，得先在首页填上 key。<br><br>
+      上面「数出来的」那半永远不用 key。</p>`;
+  }else{
+    h += `<p class="obs-lock">攒够了。让 AI 把这 ${walks.length} 趟横着看一遍，
+      找出你自己不会注意到的规律。</p>
+      <button class="solid obs-btn" id="btnObsGo">看看这阵子</button>`;
+  }
+  box.innerHTML = h;
+  const b = S("btnObsGo");
+  if(b) b.onclick = ()=>runObserve(walks);
+}
+
+async function openObserve(){
+  let walks = [];
+  try{ walks = await idbAll("walks"); }catch{}
+  if(!walks.length) return;
+  S("obsNumbers").innerHTML = renderNumbers(walks);
+  let saved = null;
+  try{ saved = await idbGet("meta","observe"); }catch{}
+  renderObserveAI(walks, saved);
+  show("observe");
+  S("observe").scrollTop = 0;
 }
 
 /* ---------- 某一趟 ---------- */
@@ -908,6 +1085,7 @@ S("btnNext").onclick=()=>{ idx++; idx<tasks.length ? goIntro() : goCard(); };
 S("btnAgain").onclick=()=>{ reset(); goIntro(); };
 
 S("btnBackArch").onclick=()=>showTab("archive");
+S("btnBackArch2").onclick=()=>showTab("archive");
 
 S("btnDelWalk").onclick=async()=>{
   if(!openId) return;
