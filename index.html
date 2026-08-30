@@ -137,6 +137,16 @@
   }
   details p{font-size:12px;color:var(--ink-dim);margin-top:8px;line-height:1.5}
 
+  /* ---------- 首页的小家伙 ----------
+     四只轮着出现，全是手写 SVG，不引任何外部图片。
+     小家伙轻轻起伏，脚下虚线往后滑 = 看着像在往前走。 */
+  .mascot{margin-bottom:22px}
+  .mascot svg{width:138px;height:115px;display:block;color:var(--ink)}
+  .mascot .fig{animation:bob 1.5s ease-in-out infinite}
+  .mascot .ground{color:var(--line);animation:walkline 1.5s linear infinite}
+  @keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+  @keyframes walkline{to{stroke-dashoffset:-14}}
+
   /* ---------- 存档屏 ---------- */
   #archive{overflow-y:auto}
   .empty{text-align:center}
@@ -176,6 +186,7 @@
 <section class="screen on" id="welcome">
   <span class="label">散步</span>
   <div class="spacer"></div>
+  <div class="mascot" id="mascot"></div>
   <h1>准备好<br>今天这趟走路了吗</h1>
   <p class="sub">三个任务，一次一个。<br>大概二十分钟，走到哪算哪。</p>
   <div class="spacer"></div>
@@ -211,7 +222,7 @@
   <div class="shutter-row">
     <button class="side" id="btnSwap">换一个</button>
     <button class="shutter" id="btnShoot" aria-label="拍照"></button>
-    <span class="side hidden"></span>
+    <button class="side" id="btnZoom">1×</button>
   </div>
   <input type="file" accept="image/*" capture="environment" id="picker">
 </section>
@@ -296,6 +307,80 @@ async function loadTasks(){
 }
 
 /* =========================================================
+   1b. 首页的小家伙
+   四只轮着来：走路的人 → 小狗 → 鸭子 → 人遛狗 → 循环。
+   全部是手写 SVG，不引任何外部图片和图标库（见交接文档约束 2）。
+   身子和头用 --paper 填充，是为了让重叠处的线不互相穿过去。
+   ========================================================= */
+const MASCOTS = [
+
+/* 走路的人 */
+`<g class="fig">
+  <path d="M50 11 Q54 4 59 10"/>
+  <circle cx="58" cy="21" r="13" fill="var(--paper)"/>
+  <path d="M57 34 L54 59"/>
+  <path d="M56 41 L41 51"/><path d="M56 41 L70 47"/>
+  <path d="M54 59 L42 87"/><path d="M42 87 L34 88"/>
+  <path d="M54 59 L68 85"/><path d="M68 85 L76 88"/>
+</g>`,
+
+/* 小狗 */
+`<g class="fig">
+  <path d="M34 53 Q23 46 27 33"/>
+  <rect x="34" y="45" width="44" height="24" rx="12" fill="var(--paper)"/>
+  <path d="M44 69 L42 88"/><path d="M56 69 L58 88"/>
+  <path d="M68 69 L66 88"/><path d="M76 67 L80 88"/>
+  <circle cx="88" cy="43" r="13" fill="var(--paper)"/>
+  <path d="M81 33 Q72 39 76 51 Q84 49 85 38 Z" fill="var(--paper)"/>
+  <path d="M99 46 L107 47"/>
+  <circle cx="93" cy="40" r="2" fill="currentColor" stroke="none"/>
+</g>`,
+
+/* 鸭子 */
+`<g class="fig">
+  <path d="M32 54 L20 47"/>
+  <ellipse cx="53" cy="61" rx="24" ry="17" fill="var(--paper)"/>
+  <path d="M43 55 Q59 61 51 73"/>
+  <path d="M47 78 L45 88"/><path d="M39 88 L52 88"/>
+  <path d="M59 78 L61 88"/><path d="M55 88 L68 88"/>
+  <circle cx="79" cy="38" r="13" fill="var(--paper)"/>
+  <path d="M90 36 L101 34 L101 42 Z" fill="var(--moss)" stroke="var(--moss)"/>
+  <circle cx="83" cy="34" r="2" fill="currentColor" stroke="none"/>
+</g>`,
+
+/* 人遛狗 */
+`<g class="fig">
+  <circle cx="34" cy="25" r="11" fill="var(--paper)"/>
+  <path d="M33 36 L31 60"/>
+  <path d="M33 42 L22 52"/><path d="M33 42 L46 50"/>
+  <path d="M31 60 L21 88"/><path d="M21 88 L14 88"/>
+  <path d="M31 60 L43 86"/><path d="M43 86 L50 88"/>
+  <path d="M46 50 Q72 64 98 53" stroke="var(--moss)" stroke-width="2.4"/>
+  <path d="M72 63 Q65 57 68 49"/>
+  <rect x="72" y="58" width="28" height="17" rx="8.5" fill="var(--paper)"/>
+  <path d="M78 75 L77 88"/><path d="M86 75 L88 88"/>
+  <path d="M94 75 L92 88"/><path d="M99 74 L103 88"/>
+  <circle cx="105" cy="55" r="9" fill="var(--paper)"/>
+  <path d="M100 48 Q94 52 97 60 Q102 59 103 51 Z" fill="var(--paper)"/>
+  <path d="M113 57 L118 58"/>
+  <circle cx="108" cy="53" r="1.7" fill="currentColor" stroke="none"/>
+</g>`
+
+];
+
+/* 轮换：记着上次是第几只，下次换下一只 */
+(function drawMascot(){
+  let n = 0;
+  try{ n = (parseInt(localStorage.getItem("walk_mascot"),10) || 0) % MASCOTS.length; }catch{}
+  try{ localStorage.setItem("walk_mascot", String((n+1) % MASCOTS.length)); }catch{}
+  document.getElementById("mascot").innerHTML =
+    `<svg viewBox="0 0 124 100" fill="none" stroke="currentColor" stroke-width="3.4"
+          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">`
+    + MASCOTS[n]
+    + `<path class="ground" d="M6 93 L118 93" stroke-dasharray="5 9"/></svg>`;
+})();
+
+/* =========================================================
    2. 状态
    ========================================================= */
 let tasks=[], idx=0, swapsLeft=1;
@@ -368,8 +453,11 @@ async function startCam(){
     video.srcObject=stream;
     await video.play();
     camOK=true;
+    S("btnZoom").style.visibility="visible";
+    setZoom(1);
   }catch(err){
     camOK=false;
+    S("btnZoom").style.visibility="hidden";
     video.style.display="none";
     camMsg.style.display="flex";
     camMsg.textContent = location.protocol==="https:"||location.hostname==="localhost"
@@ -382,12 +470,65 @@ function stopCam(){
   video.srcObject=null;
 }
 
+/* ---------- 变焦 ----------
+   两条路，自动选：
+   1) 硬件变焦——镜头真的推近，画质不掉。iOS Safari 基本不支持。
+   2) 数码变焦——画面放大，拍照时裁中间一块。到处都能用，但会损画质，
+      所以上限压到 3 倍（3 倍时只用了原图中间九分之一的像素）。
+   跟摄像头兜底一个思路：先问设备行不行，不行就退回能用的那条。 */
+const MAX_ZOOM = 3;
+let zoom = 1, hwZoom = false;
+
+function setZoom(z){
+  zoom = Math.min(MAX_ZOOM, Math.max(1, z));
+  S("btnZoom").textContent = (Math.round(zoom*10)/10) + "×";
+
+  const track = stream && stream.getVideoTracks()[0];
+  const caps  = track && track.getCapabilities && track.getCapabilities();
+
+  if(caps && caps.zoom){
+    /* 各家设备的 zoom 量纲不一样（有的 1~5，有的 100~400），
+       按比例映射到它自己的范围里，别硬塞我们的 1~3 */
+    const r = (zoom - 1) / (MAX_ZOOM - 1);
+    const v = caps.zoom.min + (caps.zoom.max - caps.zoom.min) * r;
+    hwZoom = true;
+    video.style.transform = "";
+    track.applyConstraints({advanced:[{zoom:v}]}).catch(()=>{
+      hwZoom = false;                                   // 设备说不行，退回数码
+      video.style.transform = "scale(" + zoom + ")";
+    });
+  }else{
+    hwZoom = false;
+    video.style.transform = "scale(" + zoom + ")";
+  }
+}
+
+/* 双指捏合，在取景框上连续调 */
+const touchDist = t => Math.hypot(t[0].clientX-t[1].clientX, t[0].clientY-t[1].clientY);
+let pinchD0 = 0, pinchZ0 = 1;
+
+S("vf").addEventListener("touchstart", e=>{
+  if(e.touches.length===2){ pinchD0 = touchDist(e.touches); pinchZ0 = zoom; }
+}, {passive:true});
+
+S("vf").addEventListener("touchmove", e=>{
+  if(e.touches.length===2 && pinchD0){
+    e.preventDefault();                    // 拦住，否则整个页面跟着缩放
+    setZoom(pinchZ0 * touchDist(e.touches) / pinchD0);
+  }
+}, {passive:false});
+
+S("vf").addEventListener("touchend", ()=>{ pinchD0 = 0; }, {passive:true});
+
 /* 从实时画面截一张方图 */
 function grabSquare(){
   const w=video.videoWidth, h=video.videoHeight;
-  const side=Math.min(w,h);
+  const full=Math.min(w,h);
+  /* 硬件变焦时镜头已经推近了，整帧就是放大后的画面，裁满即可；
+     数码变焦要自己裁中间一块，裁多少由倍数决定 */
+  const side=hwZoom ? full : full/zoom;
   const c=document.createElement("canvas");
-  c.width=c.height=Math.min(side,1000);
+  c.width=c.height=Math.min(Math.round(side),1000);
   c.getContext("2d").drawImage(video,(w-side)/2,(h-side)/2,side,side,0,0,c.width,c.height);
   return c.toDataURL("image/jpeg",0.85);
 }
@@ -480,6 +621,8 @@ function goCam(){
   S("camRound").textContent=t.round;
   S("camTask").textContent=t.text;
   S("btnSwap").style.visibility = swapsLeft>0 ? "visible" : "hidden";
+  zoom=1; hwZoom=false; video.style.transform="";   // 每个任务从 1 倍重新开始
+  S("btnZoom").textContent="1×";
   video.style.display="";
   show("camScreen");
   startCam();
@@ -550,6 +693,8 @@ S("picker").onchange=async e=>{
   try{ goReview(await shrinkFile(f)); }
   catch(err){ alert(err.message); }
 };
+
+S("btnZoom").onclick=()=> setZoom(zoom >= MAX_ZOOM-0.05 ? 1 : Math.floor(zoom)+1);
 
 S("btnRetake").onclick=goCam;
 S("btnNext").onclick=()=>{ idx++; idx<tasks.length ? goIntro() : goCard(); };
