@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>散步</title>
+<style>
+  :root{
+    --paper:#F2EDE3;      /* 米色底 */
+    --paper-2:#E5DDCD;    /* 次级面 */
+    --line:#CFC4AE;       /* 描边 */
+    --ink:#2E3428;        /* 深橄榄黑，正文 */
+    --ink-dim:#7A7A68;    /* 次级文字 */
+    --moss:#5A6B47;       /* 苔藓绿，唯一强调色 */
+    --mono:ui-monospace,"SF Mono",Menlo,monospace;
+    --cjk:"PingFang SC","Noto Sans CJK SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;margin:0;padding:0}
+  html,body{height:100%;overscroll-behavior:none}
+  body{
+    background:var(--paper);color:var(--ink);
+    font-family:var(--cjk);font-size:16px;line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* 每一屏都是满屏，不滚动 */
+  .screen{
+    position:fixed;inset:0;
+    display:none;flex-direction:column;
+    padding:calc(env(safe-area-inset-top) + 24px) 22px calc(env(safe-area-inset-bottom) + 28px);
+    background:var(--paper);
+  }
+  .screen.on{display:flex;animation:fade .35s ease both}
+  @keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+  .label{
+    font-family:var(--mono);font-size:11px;letter-spacing:.2em;
+    text-transform:uppercase;color:var(--ink-dim);
+  }
+  .spacer{flex:1}
+
+  h1{font-size:34px;font-weight:600;letter-spacing:.02em;line-height:1.35}
+  h2{font-size:26px;font-weight:600;line-height:1.4}
+  .sub{color:var(--ink-dim);margin-top:14px;font-size:15px}
+
+  button{
+    font-family:var(--cjk);font-size:16px;font-weight:500;
+    border:1px solid var(--ink);background:transparent;color:var(--ink);
+    padding:15px 24px;width:100%;cursor:pointer;border-radius:0;
+    transition:background .15s,color .15s;
+  }
+  button:active{background:var(--ink);color:var(--paper)}
+  button:focus-visible{outline:2px solid var(--moss);outline-offset:3px}
+  .solid{background:var(--ink);color:var(--paper)}
+  .solid:active{opacity:.75}
+  .ghost{border-color:var(--line);color:var(--ink-dim);font-size:14px;padding:12px}
+  .stack{display:flex;flex-direction:column;gap:10px}
+
+  /* ---------- 取景屏 ---------- */
+  #camScreen{padding-left:0;padding-right:0}
+  .cam-task{padding:0 22px;margin-bottom:16px}
+  .cam-task .label{color:var(--moss)}
+  .cam-task p{font-size:20px;font-weight:500;line-height:1.45;margin-top:6px}
+
+  .viewfinder{
+    position:relative;width:100%;aspect-ratio:1;
+    background:var(--paper-2);overflow:hidden;
+  }
+  .viewfinder video,.viewfinder canvas{
+    width:100%;height:100%;object-fit:cover;display:block;
+  }
+  /* 取景框四角 */
+  .corner{position:absolute;width:22px;height:22px;border:2px solid rgba(242,237,227,.9)}
+  .c1{top:12px;left:12px;border-right:0;border-bottom:0}
+  .c2{top:12px;right:12px;border-left:0;border-bottom:0}
+  .c3{bottom:12px;left:12px;border-right:0;border-top:0}
+  .c4{bottom:12px;right:12px;border-left:0;border-top:0}
+  .cam-msg{
+    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    text-align:center;padding:28px;color:var(--ink-dim);font-size:14px;line-height:1.6;
+  }
+
+  /* 快门 */
+  .shutter-row{
+    display:flex;align-items:center;justify-content:center;gap:26px;
+    padding:0 22px;margin-top:26px;
+  }
+  .shutter{
+    width:74px;height:74px;border-radius:50%;
+    border:2px solid var(--ink);background:var(--paper);
+    padding:0;flex:0 0 auto;position:relative;
+  }
+  .shutter::after{
+    content:"";position:absolute;inset:6px;border-radius:50%;
+    background:var(--ink);transition:transform .12s;
+  }
+  .shutter:active::after{transform:scale(.86)}
+  .shutter:active{background:var(--paper)}
+  .side{
+    flex:0 0 74px;font-family:var(--mono);font-size:11px;letter-spacing:.1em;
+    color:var(--ink-dim);text-align:center;border:0;padding:6px;background:none;
+  }
+  .side:active{background:none;color:var(--ink)}
+  .side.hidden{visibility:hidden}
+
+  /* ---------- 回看屏 ---------- */
+  .shot-wrap{width:100%;aspect-ratio:1;overflow:hidden;background:var(--paper-2)}
+  .shot-wrap img{width:100%;height:100%;object-fit:cover;display:block;
+    animation:dev .8s ease-out both}
+  @keyframes dev{from{filter:saturate(.2) brightness(1.15);opacity:.5}to{filter:none;opacity:1}}
+  .reply{
+    margin-top:20px;font-size:17px;line-height:1.6;
+    border-left:2px solid var(--moss);padding-left:14px;
+  }
+  .reply.pending{color:var(--ink-dim);font-family:var(--mono);font-size:12px;
+    letter-spacing:.12em;border-left-color:var(--line)}
+
+  /* ---------- 卡片屏 ---------- */
+  #cardScreen{overflow-y:auto;display:none}
+  #cardScreen.on{display:block}
+  .card-date{font-family:var(--mono);font-size:11px;letter-spacing:.18em;color:var(--ink-dim)}
+  .row{display:flex;gap:14px;margin-top:20px}
+  .row img{flex:0 0 88px;height:88px;object-fit:cover;border:1px solid var(--line)}
+  .row .t{font-family:var(--mono);font-size:10px;letter-spacing:.08em;color:var(--ink-dim);display:block;margin-bottom:5px}
+  .row p{font-size:15px;line-height:1.5}
+  .summary{margin-top:26px;padding-top:18px;border-top:1px solid var(--line);font-size:17px;line-height:1.6}
+
+  /* ---------- key ---------- */
+  details{margin-top:18px}
+  summary{font-family:var(--mono);font-size:11px;letter-spacing:.12em;color:var(--ink-dim);
+    cursor:pointer;list-style:none;padding:8px 0}
+  summary::-webkit-details-marker{display:none}
+  details input{
+    width:100%;background:var(--paper-2);border:1px solid var(--line);color:var(--ink);
+    font-family:var(--mono);font-size:12px;padding:11px;
+  }
+  details p{font-size:12px;color:var(--ink-dim);margin-top:8px;line-height:1.5}
+
+  input[type=file]{display:none}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+<!-- 1 欢迎 -->
+<section class="screen on" id="welcome">
+  <span class="label">散步</span>
+  <div class="spacer"></div>
+  <h1>准备好<br>今天这趟走路了吗</h1>
+  <p class="sub">三个任务，一次一个。<br>大概二十分钟，走到哪算哪。</p>
+  <div class="spacer"></div>
+  <button class="solid" id="btnStart">开始</button>
+  <details>
+    <summary id="keyLabel">AI 点评：未开启</summary>
+    <input type="password" id="keyInput" placeholder="sk-ant-..." autocomplete="off" spellcheck="false">
+    <p>填了才有点评。留空也能走，就是安静地拍照。</p>
+  </details>
+</section>
+
+<!-- 2 任务过场 -->
+<section class="screen" id="intro">
+  <span class="label" id="introLabel"></span>
+  <div class="spacer"></div>
+  <h2 id="introText"></h2>
+  <div class="spacer"></div>
+  <button class="solid" id="btnGo">看任务</button>
+</section>
+
+<!-- 3 取景 -->
+<section class="screen" id="camScreen">
+  <div class="cam-task">
+    <span class="label" id="camRound"></span>
+    <p id="camTask"></p>
+  </div>
+  <div class="viewfinder" id="vf">
+    <video id="video" playsinline muted autoplay></video>
+    <span class="corner c1"></span><span class="corner c2"></span>
+    <span class="corner c3"></span><span class="corner c4"></span>
+    <div class="cam-msg" id="camMsg" style="display:none"></div>
+  </div>
+  <div class="shutter-row">
+    <button class="side" id="btnSwap">换一个</button>
+    <button class="shutter" id="btnShoot" aria-label="拍照"></button>
+    <span class="side hidden"></span>
+  </div>
+  <input type="file" accept="image/*" capture="environment" id="picker">
+</section>
+
+<!-- 4 回看 -->
+<section class="screen" id="review">
+  <span class="label" id="revRound"></span>
+  <div class="spacer"></div>
+  <div class="shot-wrap"><img id="revImg" alt=""></div>
+  <div class="reply" id="revReply"></div>
+  <div class="spacer"></div>
+  <div class="stack">
+    <button class="solid" id="btnNext"></button>
+    <button class="ghost" id="btnRetake">重拍</button>
+  </div>
+</section>
+
+<!-- 5 卡片 -->
+<section class="screen" id="cardScreen">
+  <div style="padding:calc(env(safe-area-inset-top) + 24px) 22px calc(env(safe-area-inset-bottom) + 28px)">
+    <span class="card-date" id="cardDate"></span>
+    <h2 style="margin-top:8px">这趟散步</h2>
+    <div id="cardRows"></div>
+    <div class="summary" id="cardSum"></div>
+    <button class="ghost" id="btnAgain" style="margin-top:28px">再走一趟</button>
+  </div>
+</section>
+
+<script>
+/* =========================================================
+   1. 任务池 —— 顺序就是难度：看（易）→ 动（中）→ 想（难）
+   ========================================================= */
+const POOL = {
+  看:[
+    "拍一处有人手写的字",
+    "拍一样被修补过的东西：胶带、补丁、水泥补痕都算",
+    "拍一样正在掉漆或者生锈的东西",
+    "拍一样被太阳晒褪色了的东西"
+  ],
+  动:[
+    "蹲下来，拍一样离地面不到 20 厘米的东西",
+    "抬头，拍一样在你头顶正上方的东西",
+    "走过去之后回头，拍一眼你刚经过的地方",
+    "把手机贴到快挨着地面，拍一张虫子视角的照片"
+  ],
+  想:[
+    "拍一样看起来比你老的东西",
+    "拍一样有人在精心照料、但大概没人会注意的东西",
+    "拍一样看起来被忘掉了的东西",
+    "拍一道你觉得好看的影子"
+  ]
+};
+const ROUNDS=["看","动","想"];
+const ORDINAL=["第一个","第二个","第三个"];
+
+/* =========================================================
+   2. 状态
+   ========================================================= */
+let tasks=[], idx=0, swapsLeft=1;
+
+function reset(){
+  tasks = ROUNDS.map(r=>({
+    round:r,
+    text:POOL[r][Math.floor(Math.random()*POOL[r].length)],
+    photo:null, reply:null
+  }));
+  idx=0; swapsLeft=1;
+}
+
+/* =========================================================
+   3. key
+   ========================================================= */
+const HARDCODED_KEY="";
+let apiKey=(()=>{ if(HARDCODED_KEY) return HARDCODED_KEY;
+  try{return localStorage.getItem("walk_key")||""}catch{return ""} })();
+const keyInput=document.getElementById("keyInput"), keyLabel=document.getElementById("keyLabel");
+keyInput.value=apiKey;
+const refreshKey=()=>keyLabel.textContent="AI 点评："+(apiKey?"已开启":"未开启");
+keyInput.addEventListener("input",e=>{
+  apiKey=e.target.value.trim();
+  try{localStorage.setItem("walk_key",apiKey)}catch{}
+  refreshKey();
+});
+refreshKey();
+
+/* =========================================================
+   4. 屏幕切换
+   ========================================================= */
+const S=id=>document.getElementById(id);
+function show(id){
+  document.querySelectorAll(".screen").forEach(s=>s.classList.remove("on"));
+  S(id).classList.add("on");
+  if(id!=="camScreen") stopCam();      // 离开取景就关摄像头，省电
+}
+
+/* =========================================================
+   5. 摄像头
+   getUserMedia 只在 HTTPS 或 localhost 下可用。
+   调不起来就退回系统相机（点一下拍），保证不白屏。
+   ========================================================= */
+let stream=null, camOK=false;
+const video=S("video"), camMsg=S("camMsg");
+
+async function startCam(){
+  if(stream) return;
+  camMsg.style.display="none";
+  try{
+    if(!navigator.mediaDevices?.getUserMedia) throw new Error("no-api");
+    stream=await navigator.mediaDevices.getUserMedia({
+      video:{ facingMode:{ideal:"environment"}, width:{ideal:1440}, height:{ideal:1440} },
+      audio:false
+    });
+    video.srcObject=stream;
+    await video.play();
+    camOK=true;
+  }catch(err){
+    camOK=false;
+    video.style.display="none";
+    camMsg.style.display="flex";
+    camMsg.textContent = location.protocol==="https:"||location.hostname==="localhost"
+      ? "摄像头没打开。点下面的快门，用系统相机拍。"
+      : "实时取景需要 HTTPS。现在点快门会调系统相机。";
+  }
+}
+function stopCam(){
+  if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
+  video.srcObject=null;
+}
+
+/* 从实时画面截一张方图 */
+function grabSquare(){
+  const w=video.videoWidth, h=video.videoHeight;
+  const side=Math.min(w,h);
+  const c=document.createElement("canvas");
+  c.width=c.height=Math.min(side,1000);
+  c.getContext("2d").drawImage(video,(w-side)/2,(h-side)/2,side,side,0,0,c.width,c.height);
+  return c.toDataURL("image/jpeg",0.85);
+}
+
+/* 系统相机拍完的文件，压到 1000px 方图 */
+function shrinkFile(file){
+  return new Promise((res,rej)=>{
+    const fr=new FileReader();
+    fr.onerror=()=>rej(new Error("读不出这张图"));
+    fr.onload=()=>{
+      const im=new Image();
+      im.onerror=()=>rej(new Error("这张图打不开"));
+      im.onload=()=>{
+        const side=Math.min(im.width,im.height);
+        const c=document.createElement("canvas");
+        c.width=c.height=Math.min(side,1000);
+        c.getContext("2d").drawImage(im,(im.width-side)/2,(im.height-side)/2,side,side,0,0,c.width,c.height);
+        res(c.toDataURL("image/jpeg",0.85));
+      };
+      im.src=fr.result;
+    };
+    fr.readAsDataURL(file);
+  });
+}
+
+/* =========================================================
+   6. AI
+   ========================================================= */
+const VOICE=`你是用户散步时的一个朋友，嘴有点损但心是好的。用户会发来他刚拍的照片和当时的任务。
+
+你要做的：
+1. 说出照片里一个他大概率没注意到的具体细节。这是最重要的部分——不是描述他拍了什么，他自己知道；是指出他没看见的那一点。
+2. 顺带损他一句，轻的。可以吐槽构图、吐槽他挑的对象、吐槽这地方，语气像熟人拌嘴。
+3. 全部加起来一到两句话，最多 45 个字。中文。
+
+绝对不许：
+- 挖苦他的努力、审美或者拍照水平不行——那不是损，那是打击，他会不想拍第二张
+- 只是复述照片内容
+- 说教、鼓励、加感叹号堆热情
+- 用"我看到"、"这张照片"开头
+
+直接说，不要铺垫。`;
+
+async function callAI(body){
+  const r=await fetch("https://api.anthropic.com/v1/messages",{
+    method:"POST",
+    headers:{
+      "Content-Type":"application/json",
+      "x-api-key":apiKey,
+      "anthropic-version":"2023-06-01",
+      "anthropic-dangerous-direct-browser-access":"true"
+    },
+    body:JSON.stringify(body)
+  });
+  if(!r.ok) throw new Error(r.status===401?"key 不对":"接口 "+r.status);
+  const d=await r.json();
+  return d.content.filter(b=>b.type==="text").map(b=>b.text).join("").trim();
+}
+const askAI=(url,text)=>callAI({
+  model:"claude-sonnet-4-6",max_tokens:1000,system:VOICE,
+  messages:[{role:"user",content:[
+    {type:"image",source:{type:"base64",media_type:"image/jpeg",data:url.split(",")[1]}},
+    {type:"text",text:"任务是："+text}
+  ]}]
+});
+const askSummary=()=>callAI({
+  model:"claude-sonnet-4-6",max_tokens:1000,
+  system:VOICE+`
+
+这趟散步结束了。看这三条记录，找一个跨照片的规律——比如他老是往上拍、老是拍旧东西、三张都没有人。说一句收尾的话，一到两句，最多 45 个字，还是那个损朋友的语气。找不出规律就说点别的，别硬凑。`,
+  messages:[{role:"user",content:tasks.filter(t=>t.photo)
+    .map((t,i)=>`${i+1}. 任务「${t.text}」，你当时说：${t.reply||"（没点评）"}`).join("\n")}]
+});
+
+/* =========================================================
+   7. 流程
+   ========================================================= */
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+function goIntro(){
+  S("introLabel").textContent=`${idx+1} / 3`;
+  S("introText").textContent=idx===0
+    ? "准备好第一个任务了吗"
+    : `${ORDINAL[idx]}任务`;
+  show("intro");
+}
+
+function goCam(){
+  const t=tasks[idx];
+  S("camRound").textContent=t.round;
+  S("camTask").textContent=t.text;
+  S("btnSwap").style.visibility = swapsLeft>0 ? "visible" : "hidden";
+  video.style.display="";
+  show("camScreen");
+  startCam();
+}
+
+async function goReview(dataUrl){
+  const t=tasks[idx];
+  t.photo=dataUrl; t.reply=null;
+  S("revRound").textContent=t.round+" — "+t.text;
+  S("revImg").src=dataUrl;
+  S("btnNext").textContent = idx===2 ? "看看这趟走了什么" : "下一个任务";
+  const rep=S("revReply");
+  if(apiKey){
+    rep.className="reply pending"; rep.textContent="正在看……";
+  }else{
+    rep.className="reply"; rep.textContent=""; rep.style.display="none";
+  }
+  show("review");
+  if(!apiKey) return;
+  rep.style.display="";
+  try{ t.reply=await askAI(dataUrl,t.text); rep.className="reply"; rep.textContent=t.reply; }
+  catch(err){ rep.className="reply"; rep.textContent="这张没看成（"+err.message+"）。"; }
+}
+
+async function goCard(){
+  const shot=tasks.filter(t=>t.photo);
+  const d=new Date();
+  S("cardDate").textContent=`${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,"0")}.${String(d.getDate()).padStart(2,"0")}`;
+  S("cardRows").innerHTML=shot.map(t=>`
+    <div class="row">
+      <img src="${t.photo}" alt="">
+      <div><span class="t">${esc(t.round)} — ${esc(t.text)}</span>
+      ${t.reply?`<p>${esc(t.reply)}</p>`:""}</div>
+    </div>`).join("");
+  const sum=S("cardSum");
+  sum.style.display = apiKey ? "" : "none";
+  sum.textContent = apiKey ? "正在收尾……" : "";
+  show("cardScreen");
+  if(!apiKey) return;
+  try{ sum.textContent=await askSummary(); }
+  catch{ sum.style.display="none"; }
+}
+
+/* ---------- 按钮 ---------- */
+S("btnStart").onclick=()=>{ reset(); goIntro(); };
+S("btnGo").onclick=goCam;
+
+S("btnSwap").onclick=()=>{
+  const t=tasks[idx];
+  const others=POOL[t.round].filter(x=>x!==t.text);
+  t.text=others[Math.floor(Math.random()*others.length)];
+  swapsLeft--;
+  S("camTask").textContent=t.text;
+  S("btnSwap").style.visibility="hidden";
+};
+
+S("btnShoot").onclick=()=>{
+  if(camOK && video.videoWidth) goReview(grabSquare());
+  else S("picker").click();          // 兜底：调系统相机
+};
+
+S("picker").onchange=async e=>{
+  const f=e.target.files[0]; e.target.value="";
+  if(!f) return;
+  try{ goReview(await shrinkFile(f)); }
+  catch(err){ alert(err.message); }
+};
+
+S("btnRetake").onclick=goCam;
+S("btnNext").onclick=()=>{ idx++; idx<3 ? goIntro() : goCard(); };
+S("btnAgain").onclick=()=>{ reset(); goIntro(); };
+
+reset();
+</script>
+</body>
+</html>
