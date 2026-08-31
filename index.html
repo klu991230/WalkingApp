@@ -103,7 +103,7 @@
     animation:walkline 1.5s linear infinite;
   }
 
-  /* 小鹿辣评 */
+  /* 小陆辣评 */
   .who{
     display:block;font-family:var(--mono);font-size:11px;letter-spacing:.18em;
     color:var(--moss);margin-bottom:6px;
@@ -425,7 +425,7 @@
 /* 全局都要用的名字，放最上面。
    （教训：凡是 refreshKey() 这种在脚本前半段就执行的函数用到的常量，
     都必须定义在它前面，否则 const 的暂时性死区会让整个 App 白屏。） */
-const BRAND = "小鹿辣评";
+const BRAND = "小陆辣评";
 
 /* =========================================================
    1. 任务池 —— 顺序就是难度：挑刺（易）→ 折腰（中）→ 出神（难）
@@ -923,7 +923,7 @@ const askSummary=()=>callAI({
    ========================================================= */
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
-/* 「小鹿辣评」只在显示的时候加（BRAND 定义在脚本最顶上）。
+/* 「小陆辣评」只在显示的时候加（BRAND 定义在脚本最顶上）。
    存进存档的 reply 必须保持干净——那些原文会被原样喂回给 AI 做跨时间观察，
    掺进标签就等于污染了它的输入。 */
 const replyHTML = t => `<span class="who">${BRAND}</span>「${esc(t)}」`;
