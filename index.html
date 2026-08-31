@@ -543,7 +543,7 @@ const HARDCODED_KEY="";
 /* 中转站地址。填上之后所有人开箱即用，不用填 key。
    这个地址本身不是秘密——key 在中转站的服务器上，浏览器拿不到——所以可以进代码。
    部署方法见仓库里的 proxy/README.md。 */
-const PROXY_URL="";
+const PROXY_URL="https://walk-ai.lutszchin1999.workers.dev";
 
 /* 填了自己 key 的走自己的；没填但有中转站的，走中转站 */
 const useProxy = () => !!PROXY_URL && !apiKey;
