@@ -530,7 +530,12 @@ const PROVIDERS={
   deepseek: { name:"DeepSeek",
               url:"https://api.deepseek.com/anthropic/v1/messages",
               model:"deepseek-v4-flash-vision-exp",   // 这个才读得了图
-              hint:"sk-..." }
+              hint:"sk-...",
+              /* 这个模型默认开着思考模式。它会先在 thinking 块里想一通再说正文，
+                 想得久了就把 max_tokens 用光，返回里只剩思考块、text 是空的——
+                 表现就是"转圈转完什么都没有"。我们要的是一句 45 字的俏皮话，
+                 不需要它推理，直接关掉：又快又不会撑爆预算。 */
+              noThink:{type:"disabled"} }
 };
 
 /* 必须保持空字符串。仓库是 Public，写进来的 key 等于公开发布。
@@ -756,24 +761,46 @@ async function callAI(body){
   /* 这个头是 Anthropic 特有的，用来放行浏览器直连。DeepSeek 不需要，就别发。 */
   if(provider==="anthropic") headers["anthropic-dangerous-direct-browser-access"]="true";
 
-  const r=await fetch(P.url,{method:"POST",headers,body:JSON.stringify(body)});
+  const post = b => fetch(P.url,{method:"POST",headers,body:JSON.stringify(b)});
+
+  let r = await post(P.noThink ? {...body, thinking:P.noThink} : body);
+  /* 万一哪天这家不认 thinking 这个参数，去掉重发一次——
+     宁可它想一通，也别让整个点评功能挂掉 */
+  if(!r.ok && r.status===400 && P.noThink) r = await post(body);
+
   if(!r.ok) throw new Error(
     r.status===401 ? P.name+" 的 key 不对" :
     r.status===402 ? P.name+" 余额不足" :
     r.status===429 ? "太频繁了，等一下" :
     P.name+" 接口 "+r.status);
-  const d=await r.json();
-  return d.content.filter(b=>b.type==="text").map(b=>b.text).join("").trim();
+
+  let d;
+  try{ d=await r.json(); }catch{ throw new Error("返回的不是正常格式"); }
+
+  const blocks = Array.isArray(d.content) ? d.content : [];
+  const text = blocks.filter(b=>b.type==="text").map(b=>b.text||"").join("").trim();
+
+  /* 空字符串不能当成功返回——那正是"转圈转完什么都没有"的样子。
+     说清楚为什么空，好过在界面上留一片白。 */
+  if(!text){
+    const thought = blocks.some(b=>b.type==="thinking");
+    throw new Error(
+      d.stop_reason==="max_tokens" ? "字数用完了还没说到正文" :
+      thought                      ? "它只顾着想，没说出口" :
+      d.stop_reason==="refusal"    ? "它不肯说这张" :
+                                     "回来的是空的");
+  }
+  return text;
 }
 const askAI=(url,text)=>callAI({
-  model:PROVIDERS[provider].model,max_tokens:1000,system:VOICE,
+  model:PROVIDERS[provider].model,max_tokens:2048,system:VOICE,
   messages:[{role:"user",content:[
     {type:"image",source:{type:"base64",media_type:"image/jpeg",data:url.split(",")[1]}},
     {type:"text",text:"任务是："+text}
   ]}]
 });
 const askSummary=()=>callAI({
-  model:PROVIDERS[provider].model,max_tokens:1000,
+  model:PROVIDERS[provider].model,max_tokens:2048,
   system:VOICE+`
 
 这趟散步结束了。看这三条记录，找一个跨照片的规律——比如他老是往上拍、老是拍旧东西、三张都没有人。说一句收尾的话，一到两句，最多 45 个字，还是那个损朋友的语气。找不出规律就说点别的，别硬凑。`,
@@ -1129,7 +1156,7 @@ function askObserve(walks){
     ).join("\n")
   ).join("\n\n");
   return callAI({
-    model:PROVIDERS[provider].model, max_tokens:1000, system:OBSERVE_VOICE,
+    model:PROVIDERS[provider].model, max_tokens:2048, system:OBSERVE_VOICE,
     messages:[{role:"user",content:body}]
   });
 }
