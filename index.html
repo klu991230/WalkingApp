@@ -291,9 +291,7 @@
       <button data-p="deepseek">DeepSeek</button>
     </div>
     <input type="password" id="keyInput" placeholder="sk-ant-..." autocomplete="off" spellcheck="false">
-    <p>填了才有点评。留空也能走，就是安静地拍照。<br>
-       两家的 key 分开记着，来回切不用重填。<br>
-       key 只存在这台手机上，不会上传到任何地方。</p>
+    <p id="keyNote"></p>
   </details>
 </section>
 
@@ -539,8 +537,17 @@ const PROVIDERS={
 };
 
 /* 必须保持空字符串。仓库是 Public，写进来的 key 等于公开发布。
-   要让用户免填 key，唯一正确解法是加中转站，不是把 key 塞这儿。 */
+   要让用户免填 key，正确解法是下面那个中转站，不是把 key 塞这儿。 */
 const HARDCODED_KEY="";
+
+/* 中转站地址。填上之后所有人开箱即用，不用填 key。
+   这个地址本身不是秘密——key 在中转站的服务器上，浏览器拿不到——所以可以进代码。
+   部署方法见仓库里的 proxy/README.md。 */
+const PROXY_URL="";
+
+/* 填了自己 key 的走自己的；没填但有中转站的，走中转站 */
+const useProxy = () => !!PROXY_URL && !apiKey;
+const aiReady  = () => !!apiKey || useProxy();
 
 const keyStore = p => "walk_key_" + p;
 const getKey   = p => { try{ return localStorage.getItem(keyStore(p))||"" }catch{ return "" } };
@@ -566,9 +573,20 @@ const pickBtns=[...document.querySelectorAll("#pickProvider button")];
 keyInput.value=apiKey;
 
 function refreshKey(){
-  keyLabel.textContent="AI 点评："+(apiKey ? PROVIDERS[provider].name+" 已开启" : "未开启");
+  keyLabel.textContent = "AI 点评：" + (
+    apiKey     ? PROVIDERS[provider].name+" 已开启（用你自己的 key）" :
+    PROXY_URL  ? "已开启" :
+                 "未开启");
   keyInput.placeholder=PROVIDERS[provider].hint;
   pickBtns.forEach(b=>b.classList.toggle("sel", b.dataset.p===provider));
+
+  /* 这里不能用 S()——它在下面第 4 节才定义，而这个函数第 3 节就被调用了 */
+  document.getElementById("keyNote").innerHTML = (PROXY_URL && !apiKey)
+    ? `已经配好了，直接用，什么都不用填。<br>
+       想用自己的 key 就在上面选一家、填进下面那个框——填了就走你自己的。`
+    : `填了才有点评。留空也能走，就是安静地拍照。<br>
+       两家的 key 分开记着，来回切不用重填。<br>
+       key 只存在这台手机上，不会上传到任何地方。`;
 }
 
 pickBtns.forEach(b=>b.onclick=()=>{
@@ -752,6 +770,8 @@ const VOICE=`你是用户散步时的一个朋友，嘴有点损但心是好的�
 直接说，不要铺垫。`;
 
 async function callAI(body){
+  if(useProxy()) return callProxy(body);
+
   const P=PROVIDERS[provider];
   const headers={
     "Content-Type":"application/json",
@@ -768,11 +788,28 @@ async function callAI(body){
      宁可它想一通，也别让整个点评功能挂掉 */
   if(!r.ok && r.status===400 && P.noThink) r = await post(body);
 
+  return readReply(r, P.name);
+}
+
+/* 走中转站：不带任何 key。
+   请求头只发 Content-Type——中转站的预检只放行这一个，多发会被浏览器挡下。 */
+async function callProxy(body){
+  const r = await fetch(PROXY_URL,{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify(body)
+  });
+  return readReply(r, "中转站");
+}
+
+async function readReply(r, who){
   if(!r.ok) throw new Error(
-    r.status===401 ? P.name+" 的 key 不对" :
-    r.status===402 ? P.name+" 余额不足" :
-    r.status===429 ? "太频繁了，等一下" :
-    P.name+" 接口 "+r.status);
+    r.status===401 ? (who==="中转站" ? "中转站里存的 key 不对" : who+"的 key 不对") :
+    r.status===402 ? (who==="中转站" ? "中转站那个账号余额不足了" : who+"余额不足") :
+    r.status===403 ? "中转站不认这个来源" :
+    r.status===429 ? "太频繁了，等一下再拍" :
+    r.status>=500  ? who+"那边出问题了（"+r.status+"）" :
+    who+" 接口 "+r.status);
 
   let d;
   try{ d=await r.json(); }catch{ throw new Error("返回的不是正常格式"); }
@@ -850,7 +887,7 @@ async function goReview(dataUrl){
   const rep=S("revReply");
   show("review");
 
-  if(!apiKey){
+  if(!aiReady()){
     rep.className="reply"; rep.textContent=""; rep.style.display="none";
     setBusy(false,["btnNext","btnRetake"]);
     return;
@@ -882,14 +919,14 @@ async function goCard(){
     </div>`).join("");
   const sum=S("cardSum");
   sum.className="summary";
-  sum.style.display = apiKey ? "" : "none";
-  sum.innerHTML = apiKey ? '<span class="spin"></span>正在收尾……' : "";
+  sum.style.display = aiReady() ? "" : "none";
+  sum.innerHTML = aiReady() ? '<span class="spin"></span>正在收尾……' : "";
   show("cardScreen");
 
   /* 先把照片落盘。AI 那句收尾话要等几秒，不能拿照片去赌它 */
   const walkId = await saveWalk();
 
-  if(!apiKey) return;
+  if(!aiReady()) return;
   setBusy(true,["btnAgain"]);
   try{
     const text = await askSummary();
@@ -1194,7 +1231,7 @@ function renderObserveAI(walks, saved){
     h += `<p class="obs-lock">再走 ${OBS_MIN - walks.length} 趟就能看。<br><br>
       单张照片能说的话很有限，攒够了横着看才有东西。
       现在就让它说，只会硬凑。</p>`;
-  }else if(!apiKey){
+  }else if(!aiReady()){
     h += `<p class="obs-lock">这一半要联网问 AI，得先在首页填上 key。<br><br>
       上面「数出来的」那半永远不用 key。</p>`;
   }else{
