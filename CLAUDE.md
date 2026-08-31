@@ -148,10 +148,16 @@ DeepSeek 有兼容 Anthropic 格式的接口 `https://api.deepseek.com/anthropic
 不做站内分享，不需要后端。
 （导出备份已经做了，那是防丢；这一条是给人看的，两回事。）
 
-### 待办：模型可切换
-作者想加一个 Claude / DeepSeek 的开关，填哪家的 key 就选哪家。
-目的不只是省钱——**是想验证换个模型那股「损朋友」的劲儿还在不在**。
-模型名已经抽成 `MODEL` 常量了。作者的 DeepSeek key 还没申请。
+### ✅ 模型可切换：Claude / DeepSeek（已上线）
+首页 key 那一栏可以选哪家，两家的 key 分开存在 localStorage，来回切不用重填。
+
+两家配置在 `PROVIDERS` 常量里，只有地址和模型名不同——DeepSeek 提供了兼容 Anthropic
+格式的接口，请求体、图片怎么塞全都一样。DeepSeek 用 `deepseek-v4-flash-vision-exp`
+（只有这个读得了图）。`anthropic-dangerous-direct-browser-access` 这个头是 Anthropic
+特有的，只发给 Anthropic。
+
+加这个开关的目的不只是省钱和提速——**是要验证换个模型那股「损朋友」的劲儿还在不在**。
+这件事还没有答案。
 
 ## 建议的做法
 

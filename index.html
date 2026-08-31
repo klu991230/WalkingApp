@@ -214,6 +214,15 @@
   #welcome,#archive,#observe,#walkDetail{padding-bottom:calc(env(safe-area-inset-bottom) + 80px)}
   .card-inner{padding:calc(env(safe-area-inset-top) + 24px) 22px calc(env(safe-area-inset-bottom) + 92px)}
 
+  /* 选哪家模型 */
+  .pick{display:flex;gap:8px;margin-bottom:10px}
+  .pick button{
+    flex:1;padding:10px;font-size:13px;width:auto;
+    border:1px solid var(--line);color:var(--ink-dim);background:transparent;
+  }
+  .pick button.sel{border-color:var(--ink);color:var(--ink);background:var(--paper-2)}
+  .pick button:active{background:var(--paper-2);color:var(--ink)}
+
   input[type=file]{display:none}
   @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
@@ -231,8 +240,14 @@
   <button class="solid" id="btnStart">开始</button>
   <details>
     <summary id="keyLabel">AI 点评：未开启</summary>
+    <div class="pick" id="pickProvider">
+      <button data-p="anthropic">Claude</button>
+      <button data-p="deepseek">DeepSeek</button>
+    </div>
     <input type="password" id="keyInput" placeholder="sk-ant-..." autocomplete="off" spellcheck="false">
-    <p>填了才有点评。留空也能走，就是安静地拍照。</p>
+    <p>填了才有点评。留空也能走，就是安静地拍照。<br>
+       两家的 key 分开记着，来回切不用重填。<br>
+       key 只存在这台手机上，不会上传到任何地方。</p>
   </details>
 </section>
 
@@ -458,15 +473,64 @@ function reset(){
 /* =========================================================
    3. key
    ========================================================= */
+/* 两家都能用。DeepSeek 提供了兼容 Anthropic 格式的接口，
+   所以请求体、图片怎么塞、请求头全都一样，只有地址和模型名不同。
+   实测 DeepSeek 那个接口允许浏览器直连（CORS 放行本站域名）。 */
+const PROVIDERS={
+  anthropic:{ name:"Claude",
+              url:"https://api.anthropic.com/v1/messages",
+              model:"claude-sonnet-4-6",
+              hint:"sk-ant-..." },
+  deepseek: { name:"DeepSeek",
+              url:"https://api.deepseek.com/anthropic/v1/messages",
+              model:"deepseek-v4-flash-vision-exp",   // 这个才读得了图
+              hint:"sk-..." }
+};
+
+/* 必须保持空字符串。仓库是 Public，写进来的 key 等于公开发布。
+   要让用户免填 key，唯一正确解法是加中转站，不是把 key 塞这儿。 */
 const HARDCODED_KEY="";
-let apiKey=(()=>{ if(HARDCODED_KEY) return HARDCODED_KEY;
-  try{return localStorage.getItem("walk_key")||""}catch{return ""} })();
+
+const keyStore = p => "walk_key_" + p;
+const getKey   = p => { try{ return localStorage.getItem(keyStore(p))||"" }catch{ return "" } };
+
+/* 老版本只存了一个 walk_key，那是 Anthropic 的，搬到新位置去 */
+try{
+  const old=localStorage.getItem("walk_key");
+  if(old && !localStorage.getItem(keyStore("anthropic"))){
+    localStorage.setItem(keyStore("anthropic"),old);
+    localStorage.removeItem("walk_key");
+  }
+}catch{}
+
+let provider=(()=>{ try{
+  const v=localStorage.getItem("walk_provider");
+  return PROVIDERS[v] ? v : "anthropic";
+}catch{ return "anthropic" } })();
+
+let apiKey = HARDCODED_KEY || getKey(provider);
+
 const keyInput=document.getElementById("keyInput"), keyLabel=document.getElementById("keyLabel");
+const pickBtns=[...document.querySelectorAll("#pickProvider button")];
 keyInput.value=apiKey;
-const refreshKey=()=>keyLabel.textContent="AI 点评："+(apiKey?"已开启":"未开启");
+
+function refreshKey(){
+  keyLabel.textContent="AI 点评："+(apiKey ? PROVIDERS[provider].name+" 已开启" : "未开启");
+  keyInput.placeholder=PROVIDERS[provider].hint;
+  pickBtns.forEach(b=>b.classList.toggle("sel", b.dataset.p===provider));
+}
+
+pickBtns.forEach(b=>b.onclick=()=>{
+  provider=b.dataset.p;
+  try{ localStorage.setItem("walk_provider",provider) }catch{}
+  apiKey=HARDCODED_KEY || getKey(provider);    // 换一家就换回那家的 key
+  keyInput.value=apiKey;
+  refreshKey();
+});
+
 keyInput.addEventListener("input",e=>{
   apiKey=e.target.value.trim();
-  try{localStorage.setItem("walk_key",apiKey)}catch{}
+  try{ localStorage.setItem(keyStore(provider),apiKey) }catch{}
   refreshKey();
 });
 refreshKey();
@@ -619,9 +683,6 @@ function shrinkFile(file){
 /* =========================================================
    6. AI
    ========================================================= */
-/* 模型名单独拎出来。将来换 DeepSeek 只改这里和 callAI 里的地址 */
-const MODEL="claude-sonnet-4-6";
-
 const VOICE=`你是用户散步时的一个朋友，嘴有点损但心是好的。用户会发来他刚拍的照片和当时的任务。
 
 你要做的：
@@ -638,29 +699,33 @@ const VOICE=`你是用户散步时的一个朋友，嘴有点损但心是好的�
 直接说，不要铺垫。`;
 
 async function callAI(body){
-  const r=await fetch("https://api.anthropic.com/v1/messages",{
-    method:"POST",
-    headers:{
-      "Content-Type":"application/json",
-      "x-api-key":apiKey,
-      "anthropic-version":"2023-06-01",
-      "anthropic-dangerous-direct-browser-access":"true"
-    },
-    body:JSON.stringify(body)
-  });
-  if(!r.ok) throw new Error(r.status===401?"key 不对":"接口 "+r.status);
+  const P=PROVIDERS[provider];
+  const headers={
+    "Content-Type":"application/json",
+    "x-api-key":apiKey,
+    "anthropic-version":"2023-06-01"
+  };
+  /* 这个头是 Anthropic 特有的，用来放行浏览器直连。DeepSeek 不需要，就别发。 */
+  if(provider==="anthropic") headers["anthropic-dangerous-direct-browser-access"]="true";
+
+  const r=await fetch(P.url,{method:"POST",headers,body:JSON.stringify(body)});
+  if(!r.ok) throw new Error(
+    r.status===401 ? P.name+" 的 key 不对" :
+    r.status===402 ? P.name+" 余额不足" :
+    r.status===429 ? "太频繁了，等一下" :
+    P.name+" 接口 "+r.status);
   const d=await r.json();
   return d.content.filter(b=>b.type==="text").map(b=>b.text).join("").trim();
 }
 const askAI=(url,text)=>callAI({
-  model:MODEL,max_tokens:1000,system:VOICE,
+  model:PROVIDERS[provider].model,max_tokens:1000,system:VOICE,
   messages:[{role:"user",content:[
     {type:"image",source:{type:"base64",media_type:"image/jpeg",data:url.split(",")[1]}},
     {type:"text",text:"任务是："+text}
   ]}]
 });
 const askSummary=()=>callAI({
-  model:MODEL,max_tokens:1000,
+  model:PROVIDERS[provider].model,max_tokens:1000,
   system:VOICE+`
 
 这趟散步结束了。看这三条记录，找一个跨照片的规律——比如他老是往上拍、老是拍旧东西、三张都没有人。说一句收尾的话，一到两句，最多 45 个字，还是那个损朋友的语气。找不出规律就说点别的，别硬凑。`,
@@ -959,7 +1024,7 @@ function askObserve(walks){
     ).join("\n")
   ).join("\n\n");
   return callAI({
-    model:MODEL, max_tokens:1000, system:OBSERVE_VOICE,
+    model:PROVIDERS[provider].model, max_tokens:1000, system:OBSERVE_VOICE,
     messages:[{role:"user",content:body}]
   });
 }
