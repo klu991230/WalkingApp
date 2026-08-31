@@ -15,7 +15,8 @@
 **已上线**：https://klu991230.github.io/WalkingApp/
 **仓库**：github.com/klu991230/WalkingApp（Public）
 **部署**：GitHub Pages，main 分支根目录，push 后一两分钟自动更新
-**代码**：`index.html`（约 1150 行，HTML + CSS + 原生 JS）+ `tasks.json`（题库）。无框架、无构建步骤、无依赖。
+**代码**：`index.html`（约 1300 行，HTML + CSS + 原生 JS）+ `tasks.json`（题库）
++ `proxy/`（中转站，跑在 Cloudflare Workers 上）。网页本体无框架、无构建步骤、无依赖。
 
 v1 已经真机走通。v2 的 1–4 已上线（见下面「v2 进度」），5、6 还没做。
 
@@ -65,8 +66,19 @@ DeepSeek 有兼容 Anthropic 格式的接口 `https://api.deepseek.com/anthropic
 实测**允许浏览器直连**（CORS 放行 klu991230.github.io），视觉模型是 `deepseek-v4-flash-vision-exp`。
 两家配置收在 `PROVIDERS` 常量里，首页可以直接切。
 **但这不改变约束 3**：静态页面没有服务器，任何写进代码的 key 都等于公开发布。
-要让用户免填 key，唯一正确解法是加一个中转站（Cloudflare Workers 免费额度够用，约 20 行）。
+**中转站已经建好了**（2026-08-31），所以现在打开网页就有 AI 点评，不用填 key：
+
+- 代码 `proxy/worker.js`，部署说明 `proxy/README.md`
+- 跑在 Cloudflare Workers，地址 `https://walk-ai.lutszchin1999.workers.dev`
+- DeepSeek 的 key 存在 Cloudflare 的 Secret 里（变量名 `DEEPSEEK_KEY`），浏览器和仓库里都没有
+- 中转站地址本身**不是秘密**，可以进代码——秘密的是它服务器上那把 key
+- 只放行来自 `klu991230.github.io` 的请求，模型写死、`max_tokens` 封顶、强制关思考模式
+- App 里的逻辑：填了自己 key 的走自己的，没填的走中转站（`useProxy()` / `aiReady()`）
+
 中转站不存数据，不违反「不上真后端」——那条说的是别为存数据上后端。
+
+**来源检查挡得住浏览器里的滥用，挡不住命令行。** 真正的兜底是 DeepSeek 后台的余额上限。
+要换 key 就去 Cloudflare 改那个 Secret，App 一个字都不用动。
 
 **9. DeepSeek 默认开着思考模式，会把 max_tokens 吃光**
 `deepseek-v4-flash-vision-exp` 默认先在 `thinking` 块里推理，再在 `text` 块里说正文。
