@@ -392,7 +392,7 @@
 
 <script>
 /* =========================================================
-   1. 任务池 —— 顺序就是难度：找茬（易）→ 出洋相（中）→ 发呆（难）
+   1. 任务池 —— 顺序就是难度：挑刺（易）→ 折腰（中）→ 出神（难）
 
    题目本身不在这里，在同目录的 tasks.json 里。
    想改题、加题、改措辞，编辑那个文件就行，不用动代码。
@@ -402,9 +402,9 @@
    （file:// 协议下浏览器不允许 fetch）。每组留一条，保证 App
    永远走得完，不会白屏。跟下面摄像头那个兜底一个道理，别删。 */
 const FALLBACK = { groups:[
-  { name:"找茬",   tasks:["拍一处有人手写的字"] },
-  { name:"出洋相", tasks:["蹲下来，拍一样离地面不到 20 厘米的东西"] },
-  { name:"发呆",   tasks:["拍一样看起来比你老的东西"] }
+  { name:"挑刺", tasks:["拍一处有人手写的字"] },
+  { name:"折腰", tasks:["蹲下来，拍一样离地面不到 20 厘米的东西"] },
+  { name:"出神", tasks:["拍一样看起来比你老的东西"] }
 ]};
 
 let POOL={}, ROUNDS=[];
@@ -978,6 +978,31 @@ async function saveSummary(id,text){
   }catch(err){ console.warn("收尾语没存上：",err); }
 }
 
+/* ---------- 老记录的组名迁移 ----------
+   组名改过两轮：看/动/想 → 找茬/出洋相/发呆 → 挑刺/折腰/出神。
+   不迁移的话存档里会同时出现两三套名字。
+   只改组名，不动任务原文——那是他当时真的做过的事，改了就是篡改记录。 */
+const ROUND_RENAME = {
+  "看":"挑刺","动":"折腰","想":"出神",
+  "找茬":"挑刺","出洋相":"折腰","发呆":"出神"
+};
+let migrateP = null;
+function migrateRounds(){
+  if(migrateP) return migrateP;
+  migrateP = (async()=>{
+    try{
+      if(await idbGet("meta","rename_v3")) return;      // 迁过就不再迁
+      for(const w of await idbAll("walks")){
+        let changed=false;
+        w.shots.forEach(x=>{ const n=ROUND_RENAME[x.round]; if(n){ x.round=n; changed=true; } });
+        if(changed) await idbPut("walks", w);
+      }
+      await idbPut("meta",{id:"rename_v3", at:Date.now()});
+    }catch(err){ console.warn("组名没迁成：",err); }
+  })();
+  return migrateP;
+}
+
 /* ---------- 时间线 ---------- */
 const EMPTY_ARCH=`<div class="empty">
     <p>还没有存档</p>
@@ -986,6 +1011,7 @@ const EMPTY_ARCH=`<div class="empty">
 
 async function renderArchive(){
   const box=S("archiveBody");
+  await migrateRounds();
   let walks;
   try{ walks=await idbAll("walks"); }
   catch(err){
@@ -1035,13 +1061,18 @@ function localStats(walks){
   shots.forEach(x=>freq[x.task]=(freq[x.task]||0)+1);
   const top = Object.entries(freq).sort((a,b)=>b[1]-a[1])[0];
   const hits = re => shots.filter(x=>re.test(x.task)).length;
-  let poolSize = 0;
-  try{ poolSize = ROUNDS.reduce((n,r)=>n+(POOL[r]||[]).length, 0); }catch{}
+  /* 覆盖率只算「现在题库里还有的」题目。
+     历史上做过、后来被删掉的老题目不能拿来跟现在的题库比——
+     将来「任务做全了」那个勋章就是靠这个数，算错了勋章就是假的。 */
+  let pool = [];
+  try{ pool = ROUNDS.reduce((a,r)=>a.concat(POOL[r]||[]), []); }catch{}
+  const covered = pool.filter(t=>freq[t]).length;
+  const retired = Object.keys(freq).filter(t=>!pool.includes(t)).length;
   return {
     walks: walks.length,
     shots: shots.length,
     from: sorted[0].date, to: sorted[sorted.length-1].date,
-    kinds: Object.keys(freq).length, poolSize,
+    kinds: Object.keys(freq).length, covered, retired, poolSize: pool.length,
     top,
     up:   hits(/抬头|头顶|上方/),
     down: hits(/蹲|地面|底下|虫子/),
@@ -1058,7 +1089,8 @@ function renderNumbers(walks){
     + row("走过", t.walks + " 趟")
     + row("拍了", t.shots + " 张")
     + row("从", t.from + " 到 " + t.to)
-    + row("做过不同的任务", t.kinds + (t.poolSize ? " / " + t.poolSize : "") + " 个");
+    + row("题库里做过", t.covered + (t.poolSize ? " / " + t.poolSize : "") + " 个");
+  if(t.retired) h += row("做过但已下架的老题", t.retired + " 个");
   if(t.top && t.top[1] > 1) h += row("最常撞上", t.top[1] + " 次");
   if(t.up)   h += row("抬头往上拍", t.up + " 张");
   if(t.down) h += row("蹲下来拍",   t.down + " 张");
@@ -1149,6 +1181,7 @@ function renderObserveAI(walks, saved){
 }
 
 async function openObserve(){
+  await migrateRounds();
   let walks = [];
   try{ walks = await idbAll("walks"); }catch{}
   if(!walks.length) return;
@@ -1310,6 +1343,7 @@ const ready = loadTasks();
 /* 开屏就在「走」这一屏。走一次 showTab 把底栏点亮 ——
    欢迎屏的 on 是写死在 HTML 里的，不走一遍底栏不会出现。 */
 showTab("walk");
+migrateRounds();          // 组名改过，把存档里的老记录顺一遍
 </script>
 </body>
 </html>
