@@ -11,7 +11,7 @@
     --paper-2:#E5DDCD;    /* 次级面 */
     --line:#CFC4AE;       /* 描边 */
     --ink:#2E3428;        /* 深橄榄黑，正文 */
-    --ink-dim:#7A7A68;    /* 次级文字 */
+    --ink-dim:#6A6A58;    /* 次级文字（调深过，原来的 #7A7A68 小字看不清） */
     --moss:#5A6B47;       /* 苔藓绿，唯一强调色 */
     --mono:ui-monospace,"SF Mono",Menlo,monospace;
     --cjk:"PingFang SC","Noto Sans CJK SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
@@ -31,18 +31,33 @@
     padding:calc(env(safe-area-inset-top) + 24px) 22px calc(env(safe-area-inset-bottom) + 28px);
     background:var(--paper);
   }
-  .screen.on{display:flex;animation:fade .35s ease both}
-  @keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  .screen.on{display:flex;animation:fade .3s ease both}
+  @keyframes fade{from{opacity:0}to{opacity:1}}
+
+  /* 进场：内容一层层浮上来，而不是整屏硬切 */
+  @keyframes rise{from{opacity:0;transform:translateY(13px)}to{opacity:1;transform:none}}
+  .screen.on > *,
+  #cardScreen.on .card-inner > *{animation:rise .5s cubic-bezier(.22,.68,.3,1) both}
+  .screen.on > *:nth-child(2),#cardScreen.on .card-inner > *:nth-child(2){animation-delay:.06s}
+  .screen.on > *:nth-child(3),#cardScreen.on .card-inner > *:nth-child(3){animation-delay:.12s}
+  .screen.on > *:nth-child(4),#cardScreen.on .card-inner > *:nth-child(4){animation-delay:.18s}
+  .screen.on > *:nth-child(5),#cardScreen.on .card-inner > *:nth-child(5){animation-delay:.24s}
+  .screen.on > *:nth-child(n+6),
+  #cardScreen.on .card-inner > *:nth-child(n+6){animation-delay:.30s}
+  /* 取景屏不参与——摄像头画面跟着动会闪 */
+  #camScreen.on > *{animation:none}
 
   .label{
-    font-family:var(--mono);font-size:11px;letter-spacing:.2em;
+    font-family:var(--mono);font-size:12px;letter-spacing:.18em;
     text-transform:uppercase;color:var(--ink-dim);
   }
+  /* 装一整句任务的那一行，不能用 label 的样式 */
+  .task-line{font-size:15px;line-height:1.5;color:var(--ink-dim);display:block}
   .spacer{flex:1}
 
   h1{font-size:34px;font-weight:600;letter-spacing:.02em;line-height:1.35}
   h2{font-size:26px;font-weight:600;line-height:1.4}
-  .sub{color:var(--ink-dim);margin-top:14px;font-size:15px}
+  .sub{color:var(--ink-dim);margin-top:14px;font-size:16px;line-height:1.65}
 
   button{
     font-family:var(--cjk);font-size:16px;font-weight:500;
@@ -56,6 +71,38 @@
   .solid:active{opacity:.75}
   .ghost{border-color:var(--line);color:var(--ink-dim);font-size:14px;padding:12px}
   .stack{display:flex;flex-direction:column;gap:10px}
+
+  /* AI 还在想的时候：转圈 + 按钮变灰点不动 */
+  .spin{
+    display:inline-block;width:13px;height:13px;vertical-align:-2px;margin-right:9px;
+    border:2px solid var(--line);border-top-color:var(--moss);border-radius:50%;
+    animation:spin .8s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg)}}
+  button:disabled{opacity:.3}
+  button:disabled:active{background:transparent;color:var(--ink)}
+  .solid:disabled:active{background:var(--ink);color:var(--paper);opacity:.3}
+
+  /* 圆按钮：跟快门是同一个形状，暗示"下一步是拍照" */
+  .round-btn{
+    width:124px;height:124px;border-radius:50%;padding:0;
+    align-self:center;position:relative;flex:0 0 auto;margin-bottom:22px;
+    background:var(--ink);color:var(--paper);border:0;
+    font-size:17px;letter-spacing:.14em;
+  }
+  .round-btn:active{background:var(--ink);color:var(--paper);transform:scale(.95)}
+  .round-btn{transition:transform .14s}
+  /* 一圈一圈荡开的水波，招手让你点 */
+  .round-btn::before,.round-btn::after{
+    content:"";position:absolute;inset:-10px;border-radius:50%;
+    border:1px solid var(--line);animation:ripple 2.6s ease-out infinite;
+  }
+  .round-btn::after{animation-delay:1.3s}
+  @keyframes ripple{
+    0%{transform:scale(.94);opacity:.85}
+    75%{transform:scale(1.2);opacity:0}
+    100%{opacity:0}
+  }
 
   /* ---------- 取景屏 ---------- */
   #camScreen{padding-left:0;padding-right:0}
@@ -78,7 +125,7 @@
   .c4{bottom:12px;right:12px;border-left:0;border-top:0}
   .cam-msg{
     position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
-    text-align:center;padding:28px;color:var(--ink-dim);font-size:14px;line-height:1.6;
+    text-align:center;padding:28px;color:var(--ink-dim);font-size:15px;line-height:1.65;
   }
 
   /* 快门 */
@@ -113,29 +160,29 @@
     margin-top:20px;font-size:17px;line-height:1.6;
     border-left:2px solid var(--moss);padding-left:14px;
   }
-  .reply.pending{color:var(--ink-dim);font-family:var(--mono);font-size:12px;
-    letter-spacing:.12em;border-left-color:var(--line)}
+  .reply.pending{color:var(--ink-dim);font-size:14px;border-left-color:var(--line)}
+  .reply.dim,.summary.dim{color:var(--ink-dim);font-size:14px;border-left-color:var(--line)}
 
   /* ---------- 卡片屏 ---------- */
   #cardScreen{overflow-y:auto;display:none}
   #cardScreen.on{display:block}
-  .card-date{font-family:var(--mono);font-size:11px;letter-spacing:.18em;color:var(--ink-dim)}
+  .card-date{font-family:var(--mono);font-size:12.5px;letter-spacing:.16em;color:var(--ink-dim)}
   .row{display:flex;gap:14px;margin-top:20px}
   .row img{flex:0 0 88px;height:88px;object-fit:cover;border:1px solid var(--line)}
-  .row .t{font-family:var(--mono);font-size:10px;letter-spacing:.08em;color:var(--ink-dim);display:block;margin-bottom:5px}
+  .row .t{font-size:13px;color:var(--ink-dim);display:block;margin-bottom:6px;line-height:1.45}
   .row p{font-size:15px;line-height:1.5}
   .summary{margin-top:26px;padding-top:18px;border-top:1px solid var(--line);font-size:17px;line-height:1.6}
 
   /* ---------- key ---------- */
   details{margin-top:18px}
-  summary{font-family:var(--mono);font-size:11px;letter-spacing:.12em;color:var(--ink-dim);
+  summary{font-family:var(--mono);font-size:12.5px;letter-spacing:.1em;color:var(--ink-dim);
     cursor:pointer;list-style:none;padding:8px 0}
   summary::-webkit-details-marker{display:none}
   details input{
     width:100%;background:var(--paper-2);border:1px solid var(--line);color:var(--ink);
     font-family:var(--mono);font-size:12px;padding:11px;
   }
-  details p{font-size:12px;color:var(--ink-dim);margin-top:8px;line-height:1.5}
+  details p{font-size:13.5px;color:var(--ink-dim);margin-top:10px;line-height:1.7}
 
   /* ---------- 首页的小家伙 ----------
      四只轮着出现，全是手写 SVG，不引任何外部图片。
@@ -154,7 +201,7 @@
   .empty p{font-size:17px}
   .empty .hint{font-size:13px;color:var(--ink-dim);margin-top:12px;line-height:1.8}
 
-  .arch-stat{font-family:var(--mono);font-size:11px;letter-spacing:.14em;
+  .arch-stat{font-family:var(--mono);font-size:12px;letter-spacing:.12em;
     color:var(--ink-dim);margin:18px 0 2px}
   .arch-row{
     display:block;width:100%;text-align:left;background:none;
@@ -172,7 +219,7 @@
   #observe{overflow-y:auto}
   .obs-btn{margin-top:20px;font-size:14px;padding:13px}
   .obs-block{margin-top:30px;padding-top:20px;border-top:1px solid var(--line)}
-  .obs-h{font-family:var(--mono);font-size:11px;letter-spacing:.2em;
+  .obs-h{font-family:var(--mono);font-size:12px;letter-spacing:.18em;
     text-transform:uppercase;color:var(--ink-dim);margin-bottom:16px}
   .obs-fact{display:flex;justify-content:space-between;gap:16px;
     font-size:15px;line-height:1.7;padding:5px 0}
@@ -181,14 +228,13 @@
   .obs-ai .line{font-size:17px;line-height:1.65;border-left:2px solid var(--moss);
     padding-left:15px;margin-bottom:18px}
   .obs-lock{font-size:14px;color:var(--ink-dim);line-height:1.8}
-  .obs-when{font-family:var(--mono);font-size:10px;letter-spacing:.12em;
+  .obs-when{font-family:var(--mono);font-size:11px;letter-spacing:.1em;
     color:var(--ink-dim);margin-top:6px}
 
   /* ---------- 某一趟的详情 ---------- */
   .det-back{width:auto;align-self:flex-start;padding:9px 15px;margin-bottom:20px}
   .det-shot{margin-top:28px}
-  .det-shot .t{font-family:var(--mono);font-size:10px;letter-spacing:.08em;
-    color:var(--ink-dim);display:block;margin-top:13px}
+  .det-shot .t{font-size:13.5px;color:var(--ink-dim);display:block;margin-top:13px;line-height:1.5}
   .det-shot .reply{margin-top:10px;font-size:16px}
 
   /* ---------- 底栏 ----------
@@ -257,7 +303,7 @@
   <div class="spacer"></div>
   <h2 id="introText"></h2>
   <div class="spacer"></div>
-  <button class="solid" id="btnGo">看任务</button>
+  <button class="round-btn" id="btnGo">看任务</button>
 </section>
 
 <!-- 3 取景 -->
@@ -282,7 +328,7 @@
 
 <!-- 4 回看 -->
 <section class="screen" id="review">
-  <span class="label" id="revRound"></span>
+  <span class="task-line" id="revRound"></span>
   <div class="spacer"></div>
   <div class="shot-wrap"><img id="revImg" alt=""></div>
   <div class="reply" id="revReply"></div>
@@ -300,7 +346,7 @@
     <h2 style="margin-top:8px">这趟散步</h2>
     <div id="cardRows"></div>
     <div class="summary" id="cardSum"></div>
-    <button class="ghost" id="btnAgain" style="margin-top:28px">再走一趟</button>
+    <button class="ghost" id="btnAgain" style="margin-top:32px">回到主页</button>
   </div>
 </section>
 
@@ -542,7 +588,9 @@ const S=id=>document.getElementById(id);
 
 /* 哪几屏显示底栏。走路途中（过场/取景/回看）不显示。
    结束卡片显示——那趟已经走完了，得留条路去存档。 */
-const WITH_TABBAR = ["welcome","archive","cardScreen","walkDetail","observe"];
+/* 结算屏不在这里面：那是一趟的收尾，不该有别的地方可去。
+   要去存档，先回主页再切。 */
+const WITH_TABBAR = ["welcome","archive","walkDetail","observe"];
 
 function show(id){
   document.querySelectorAll(".screen").forEach(s=>s.classList.remove("on"));
@@ -758,6 +806,14 @@ function goCam(){
   startCam();
 }
 
+/* AI 还在想的时候，把出口锁上。
+   不锁的话有两个后果：一是手快点过去，这句点评你就永远错过了；
+   二是三张都点得快，最后收尾时有些点评还没回来，
+   AI 会拿一份残缺的记录去生成收尾语。 */
+function setBusy(on, ids){
+  ids.forEach(i=>{ const b=S(i); if(b) b.disabled=on; });
+}
+
 async function goReview(dataUrl){
   const t=tasks[idx];
   t.photo=dataUrl; t.reply=null;
@@ -765,16 +821,26 @@ async function goReview(dataUrl){
   S("revImg").src=dataUrl;
   S("btnNext").textContent = idx===tasks.length-1 ? "看看这趟走了什么" : "下一个任务";
   const rep=S("revReply");
-  if(apiKey){
-    rep.className="reply pending"; rep.textContent="正在看……";
-  }else{
-    rep.className="reply"; rep.textContent=""; rep.style.display="none";
-  }
   show("review");
-  if(!apiKey) return;
+
+  if(!apiKey){
+    rep.className="reply"; rep.textContent=""; rep.style.display="none";
+    setBusy(false,["btnNext","btnRetake"]);
+    return;
+  }
+
+  setBusy(true,["btnNext","btnRetake"]);
   rep.style.display="";
-  try{ t.reply=await askAI(dataUrl,t.text); rep.className="reply"; rep.textContent=t.reply; }
-  catch(err){ rep.className="reply"; rep.textContent="这张没看成（"+err.message+"）。"; }
+  rep.className="reply pending";
+  rep.innerHTML='<span class="spin"></span>正在看这张……';
+  try{
+    t.reply=await askAI(dataUrl,t.text);
+    rep.className="reply"; rep.textContent=t.reply;
+  }catch(err){
+    rep.className="reply dim"; rep.textContent="这张没看成（"+err.message+"）。";
+  }finally{
+    setBusy(false,["btnNext","btnRetake"]);
+  }
 }
 
 async function goCard(){
@@ -788,20 +854,27 @@ async function goCard(){
       ${t.reply?`<p>${esc(t.reply)}</p>`:""}</div>
     </div>`).join("");
   const sum=S("cardSum");
+  sum.className="summary";
   sum.style.display = apiKey ? "" : "none";
-  sum.textContent = apiKey ? "正在收尾……" : "";
+  sum.innerHTML = apiKey ? '<span class="spin"></span>正在收尾……' : "";
   show("cardScreen");
 
   /* 先把照片落盘。AI 那句收尾话要等几秒，不能拿照片去赌它 */
   const walkId = await saveWalk();
 
   if(!apiKey) return;
+  setBusy(true,["btnAgain"]);
   try{
     const text = await askSummary();
     sum.textContent = text;
     saveSummary(walkId, text);        // 回来了再补进存档
+  }catch(err){
+    /* 原来这里是默默藏起来，看着就像"没给"。说清楚，并且让他知道照片是安全的 */
+    sum.className="summary dim";
+    sum.textContent="收尾这句没看成（"+err.message+"）。照片和点评都已经存好了。";
+  }finally{
+    setBusy(false,["btnAgain"]);
   }
-  catch{ sum.style.display="none"; }
 }
 
 /* =========================================================
@@ -1196,7 +1269,7 @@ S("btnZoom").onclick=()=> setZoom(zoom >= MAX_ZOOM-0.05 ? 1 : Math.floor(zoom)+1
 
 S("btnRetake").onclick=goCam;
 S("btnNext").onclick=()=>{ idx++; idx<tasks.length ? goIntro() : goCard(); };
-S("btnAgain").onclick=()=>{ reset(); goIntro(); };
+S("btnAgain").onclick=()=>showTab("walk");
 
 S("btnBackArch").onclick=()=>showTab("archive");
 S("btnBackArch2").onclick=()=>showTab("archive");
