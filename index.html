@@ -83,6 +83,32 @@
   button:disabled:active{background:transparent;color:var(--ink)}
   .solid:disabled:active{background:var(--ink);color:var(--paper);opacity:.3}
 
+  /* 首页顶上一行：左边是名字，右边是你走过多少 */
+  .top-row{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+
+  /* 首页的「开始」：一条实心的路，脚下那条虚线跟小家伙踩的是同一条。
+     故意不做成圆的——圆的那个留给「看任务」，两个入口要长得不一样。 */
+  .go-wrap{align-self:stretch}
+  .go-btn{
+    width:100%;background:var(--ink);color:var(--paper);border:0;
+    padding:20px 24px;font-size:17px;letter-spacing:.22em;
+    display:flex;align-items:center;justify-content:center;gap:2px;
+    transition:letter-spacing .2s,opacity .15s;
+  }
+  .go-btn:active{background:var(--ink);color:var(--paper);opacity:.8;letter-spacing:.3em}
+  .go-btn .arrow{display:inline-block;font-size:15px;animation:nudge 2.4s ease-in-out infinite}
+  @keyframes nudge{0%,62%,100%{transform:translateX(0)}30%{transform:translateX(7px)}}
+  .go-path{
+    height:0;border-top:2px dashed var(--line);
+    animation:walkline 1.5s linear infinite;
+  }
+
+  /* 小鹿辣评 */
+  .who{
+    display:block;font-family:var(--mono);font-size:11px;letter-spacing:.18em;
+    color:var(--moss);margin-bottom:6px;
+  }
+
   /* 圆按钮：跟快门是同一个形状，暗示"下一步是拍照" */
   .round-btn{
     width:124px;height:124px;border-radius:50%;padding:0;
@@ -171,6 +197,7 @@
   .row img{flex:0 0 88px;height:88px;object-fit:cover;border:1px solid var(--line)}
   .row .t{font-size:13px;color:var(--ink-dim);display:block;margin-bottom:6px;line-height:1.45}
   .row p{font-size:15px;line-height:1.5}
+  .row .who{font-size:10px;letter-spacing:.14em;margin-bottom:3px}
   .summary{margin-top:26px;padding-top:18px;border-top:1px solid var(--line);font-size:17px;line-height:1.6}
 
   /* ---------- key ---------- */
@@ -277,13 +304,19 @@
 
 <!-- 1 欢迎 -->
 <section class="screen on" id="welcome">
-  <span class="label">散步</span>
+  <div class="top-row">
+    <span class="label">散步</span>
+    <span class="label" id="homeStat"></span>
+  </div>
   <div class="spacer"></div>
   <div class="mascot" id="mascot"></div>
-  <h1>准备好<br>今天这趟走路了吗</h1>
-  <p class="sub">三个任务，一次一个。<br>大概二十分钟，走到哪算哪。</p>
+  <h1>准备好<br>今天的漫步了吗？</h1>
+  <p class="sub">三个任务，一次一个。<br>不用走远，改的是你怎么看。</p>
   <div class="spacer"></div>
-  <button class="solid" id="btnStart">开始</button>
+  <div class="go-wrap">
+    <button class="go-btn" id="btnStart">开始<span class="arrow">→</span></button>
+    <div class="go-path"></div>
+  </div>
   <details>
     <summary id="keyLabel">AI 点评：未开启</summary>
     <div class="pick" id="pickProvider">
@@ -389,6 +422,11 @@
 </nav>
 
 <script>
+/* 全局都要用的名字，放最上面。
+   （教训：凡是 refreshKey() 这种在脚本前半段就执行的函数用到的常量，
+    都必须定义在它前面，否则 const 的暂时性死区会让整个 App 白屏。） */
+const BRAND = "小鹿辣评";
+
 /* =========================================================
    1. 任务池 —— 顺序就是难度：挑刺（易）→ 折腰（中）→ 出神（难）
 
@@ -573,8 +611,8 @@ const pickBtns=[...document.querySelectorAll("#pickProvider button")];
 keyInput.value=apiKey;
 
 function refreshKey(){
-  keyLabel.textContent = "AI 点评：" + (
-    apiKey     ? PROVIDERS[provider].name+" 已开启（用你自己的 key）" :
+  keyLabel.textContent = BRAND + "：" + (
+    apiKey     ? "已开启（用你自己的 "+PROVIDERS[provider].name+" key）" :
     PROXY_URL  ? "已开启" :
                  "未开启");
   keyInput.placeholder=PROVIDERS[provider].hint;
@@ -622,12 +660,24 @@ function show(id){
   if(id!=="camScreen") stopCam();      // 离开取景就关摄像头，省电
 }
 
+/* 首页右上角：走过多少。开屏和每次回主页时刷新。 */
+async function refreshHomeStat(){
+  const el=S("homeStat");
+  if(!el) return;
+  try{
+    const ws=await idbAll("walks");
+    if(!ws.length){ el.textContent=""; return; }
+    el.textContent = ws.length + " 趟 · " + ws.reduce((k,w)=>k+w.shots.length,0) + " 张";
+  }catch{ el.textContent=""; }
+}
+
 /* 切 tab。「走」永远回到欢迎屏，不接着上一趟。 */
 function showTab(which){
   show(which==="archive" ? "archive" : "welcome");
   S("tabWalk").classList.toggle("sel", which!=="archive");
   S("tabArchive").classList.toggle("sel", which==="archive");
   if(which==="archive") renderArchive();     // 每次进来重读，刚走完的那趟才会出现
+  else                  refreshHomeStat();   // 刚走完回主页，右上角的数字要跟上
 }
 
 /* =========================================================
@@ -760,9 +810,11 @@ const VOICE=`你是用户散步时的一个朋友，嘴有点损但心是好的�
 最重要的一条：你说的话必须跟那个任务扣得上。
 不是随便从照片里挑个东西说——要冲着"他是为了这个任务才拍的这张"来说。
 可以走这几个方向：
-- 他挑的这个对象，配不配得上这个任务
-- 画面里其实有更符合任务的东西，他没看见
+- 顺着这个任务看，画面里还藏着一个更够劲的东西，他没看见
 - 他确实拍到了，但没意识到自己拍到的是什么
+- 这个对象身上有个跟任务有关的细节，他没注意到
+
+注意：是"这儿还有一个"，不是"你那个不算"。
 
 在这个前提下，说出一个他大概率没注意到的具体细节。
 不是复述他拍了什么——他自己知道。
@@ -771,8 +823,12 @@ const VOICE=`你是用户散步时的一个朋友，嘴有点损但心是好的�
 
 全部加起来一到两句话，最多 45 个字。中文。直接说，不要铺垫。
 
-绝对不许：
-- 挖苦他的努力、审美或者拍照水平不行——那不是损，那是打击，他会不想拍第二张
+绝对不许（越了就不是玩笑，是打击，他不会想拍第二张）：
+- 判定他做到没做到、拍对没拍对。这个 App 不打分，也不评完成度。
+  "没拍对""不算""这张不行""偏题了"这类话一句都不能说。
+- 挖苦他的眼力、观察力、审美。
+  比如"你眼睛是摆设吗""你这观察力"——这些越线了，不管多好笑。
+- 挖苦他的努力或者拍照水平不行
 - 说了一堆但跟任务没关系
 - 只是复述照片内容
 - 说教、鼓励、加感叹号堆热情
@@ -854,7 +910,10 @@ const askSummary=()=>callAI({
   model:PROVIDERS[provider].model,max_tokens:2048,
   system:VOICE+`
 
-这趟散步结束了。看这三条记录，找一个跨照片的规律——比如他老是往上拍、老是拍旧东西、三张都没有人。说一句收尾的话，一到两句，最多 45 个字，还是那个损朋友的语气。找不出规律就说点别的，别硬凑。`,
+这趟散步结束了。看这三条记录，找一个跨照片的规律——比如他老是往上拍、老是拍旧东西、三张都没有人。说一句收尾的话，一到两句，最多 45 个字，还是那个损朋友的语气。找不出规律就说点别的，别硬凑。
+
+这里最容易滑成"总评"，别滑。不许给这趟打分、不许说他三张拍得怎么样、
+不许评价他的眼力。只说你看出来的那个规律本身。`,
   messages:[{role:"user",content:tasks.filter(t=>t.photo)
     .map((t,i)=>`${i+1}. 任务「${t.text}」，你当时说：${t.reply||"（没点评）"}`).join("\n")}]
 });
@@ -863,6 +922,11 @@ const askSummary=()=>callAI({
    7. 流程
    ========================================================= */
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+/* 「小鹿辣评」只在显示的时候加（BRAND 定义在脚本最顶上）。
+   存进存档的 reply 必须保持干净——那些原文会被原样喂回给 AI 做跨时间观察，
+   掺进标签就等于污染了它的输入。 */
+const replyHTML = t => `<span class="who">${BRAND}</span>「${esc(t)}」`;
 
 function goIntro(){
   S("introLabel").textContent=`${idx+1} / ${tasks.length}`;
@@ -913,7 +977,7 @@ async function goReview(dataUrl){
   rep.innerHTML='<span class="spin"></span>正在看这张……';
   try{
     t.reply=await askAI(dataUrl,t.text);
-    rep.className="reply"; rep.textContent=t.reply;
+    rep.className="reply"; rep.innerHTML=replyHTML(t.reply);
   }catch(err){
     rep.className="reply dim"; rep.textContent="这张没看成（"+err.message+"）。";
   }finally{
@@ -929,7 +993,7 @@ async function goCard(){
     <div class="row">
       <img src="${t.photo}" alt="">
       <div><span class="t">${esc(t.round)} — ${esc(t.text)}</span>
-      ${t.reply?`<p>${esc(t.reply)}</p>`:""}</div>
+      ${t.reply?`<p class="reply-inline">${replyHTML(t.reply)}</p>`:""}</div>
     </div>`).join("");
   const sum=S("cardSum");
   sum.className="summary";
@@ -1284,7 +1348,7 @@ async function openWalk(id){
     <div class="det-shot">
       <div class="shot-wrap"><img id="det${i}" src="${x.thumb||""}" alt=""></div>
       <span class="t">${esc(x.round)} — ${esc(x.task)}</span>
-      ${x.reply?`<p class="reply">${esc(x.reply)}</p>`:""}
+      ${x.reply?`<p class="reply">${replyHTML(x.reply)}</p>`:""}
     </div>`).join("");
   const sum=S("detSum");
   sum.textContent=w.summary||"";
